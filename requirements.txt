@@ -1,13 +1,8 @@
-# ROM Manager Requirements
+# R0MM PySide6 Release Requirements
 
-# Desktop interface (Flet - default)
-flet>=0.80.0
+# Native desktop interface (release target)
+PySide6>=6.0.0
 
-# Web interface (optional)
-flask>=2.0.0
-
-# HTTP requests for DAT sources (optional but recommended)
+# HTTP requests used by scraper and torrent helper paths
 requests>=2.28.0
-
-# Note: tkinter is usually included with Python (legacy GUI, use --gui flag)
 

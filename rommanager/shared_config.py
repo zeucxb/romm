@@ -97,8 +97,15 @@ STRATEGIES = [
 
 # App data directory — portable: everything stays inside the project folder
 import os
+import shutil
+import sys
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_DIR = os.path.dirname(_PACKAGE_DIR)          # D:\1 romorg
+if getattr(sys, "frozen", False):
+    _PROJECT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    _BUNDLE_DIR = getattr(sys, "_MEIPASS", "")
+else:
+    _PROJECT_DIR = os.path.dirname(_PACKAGE_DIR)
+    _BUNDLE_DIR = ""
 APP_DATA_DIR = os.path.join(_PROJECT_DIR, 'data')
 COLLECTIONS_DIR = os.path.join(APP_DATA_DIR, 'collections')
 DATS_DIR = os.path.join(APP_DATA_DIR, 'dats')
@@ -113,6 +120,12 @@ DAT_INDEX_FILE = os.path.join(APP_DATA_DIR, 'dat_index.json')
 RECENT_FILE = os.path.join(APP_DATA_DIR, 'recent.json')
 SETTINGS_FILE = os.path.join(APP_DATA_DIR, 'settings.json')
 SESSION_STATE_FILE = os.path.join(APP_DATA_DIR, 'session_state.json')
+
+_BUNDLED_DATA_DIR = os.path.join(_BUNDLE_DIR, 'data') if _BUNDLE_DIR else ""
+# Frozen builds intentionally do not copy the repository's bundled data tree
+# into the portable runtime folder. The app should create only an empty
+# directory skeleton on first launch, without carrying over developer DATs,
+# collections, snapshots, or other session residue.
 
 
 # ─── Empty State Definitions ──────────────────────────────────────────────────

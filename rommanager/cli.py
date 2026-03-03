@@ -23,9 +23,8 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Modes:
-  %(prog)s              Launch the GUI Mode Selector (Launcher)
-  %(prog)s --web        Start the Web Interface directly
-  %(prog)s --gui        Start the Desktop App directly
+  %(prog)s              Launch the PySide6 desktop app
+  %(prog)s --pyside6    Start the PySide6 desktop app directly
 
 Examples:
   %(prog)s --dat nointro.dat --roms ./roms --output ./organized
@@ -35,9 +34,8 @@ Examples:
         '''
     )
 
-    # Mode flags
-    parser.add_argument('--web', action='store_true', help='Launch Web Interface')
-    parser.add_argument('--gui', action='store_true', help='Launch Desktop GUI')
+    # Legacy archived frontend flags kept only for explicit error messaging in main.py
+    parser.add_argument('--pyside6', action='store_true', help='Launch the PySide6 desktop app')
 
     # CLI Arguments group
     cli_group = parser.add_argument_group('CLI Operations')
@@ -189,16 +187,15 @@ def run_cli(args=None):
         return _load_collection_mode(args)
 
     # Check if user tried to run CLI mode without required args
-    if not (args.web or args.gui):
-        if not args.blindmatch_system and (not args.dat or not args.roms):
-            parser.print_help()
-            print("\nError: --dat and --roms are required for CLI mode.")
-            return 1
-        # --output is required unless just doing --report
-        if not args.output and not args.report:
-            parser.print_help()
-            print("\nError: --output is required for organizing (or use --report).")
-            return 1
+    if not args.blindmatch_system and (not args.dat or not args.roms):
+        parser.print_help()
+        print("\nError: --dat and --roms are required for CLI mode.")
+        return 1
+    # --output is required unless just doing --report
+    if not args.output and not args.report:
+        parser.print_help()
+        print("\nError: --output is required for organizing (or use --report).")
+        return 1
 
     if args.strategy == "flat" and profile.get("strategy"):
         args.strategy = profile.get("strategy")

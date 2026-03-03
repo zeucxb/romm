@@ -118,6 +118,7 @@ class ToolWorker(QtCore.QObject):
 class AppState(QtCore.QObject):
     status_changed = QtCore.Signal(dict)
     results_changed = QtCore.Signal(dict)
+    session_state_changed = QtCore.Signal(dict)
     missing_changed = QtCore.Signal(dict)
     collections_changed = QtCore.Signal(list)
     recent_collections_changed = QtCore.Signal(list)
@@ -146,6 +147,7 @@ class AppState(QtCore.QObject):
     torrentzip_done = QtCore.Signal(dict)
     deep_clean_done = QtCore.Signal(dict)
     find_duplicates_done = QtCore.Signal(dict)
+    metadata_refresh_done = QtCore.Signal(dict)
     dashboard_data_ready = QtCore.Signal(dict)
 
     def __init__(self) -> None:
@@ -192,6 +194,8 @@ class AppState(QtCore.QObject):
         self._scan_ui_last_emit_ts: float = 0.0
         self._scan_ui_last_emit_count: int = 0
         self._scan_ui_last_phase: str = "idle"
+        self._scan_live_identified_count: int = 0
+        self._scan_live_unidentified_count: int = 0
         self.dat_downloader_catalog_done.connect(self._on_dat_downloader_catalog_done)
         self.dat_downloader_download_done.connect(self._on_dat_downloader_download_done)
 
@@ -264,18 +268,48 @@ class AppState(QtCore.QObject):
         self.missing = self.core.get_missing()
         self.missing_changed.emit(self.missing)
 
+    def get_session_state(self) -> Dict[str, Any]:
+        identified = len((self.results or {}).get("identified", []) or [])
+        unidentified = len((self.results or {}).get("unidentified", []) or [])
+        has_content = bool(identified or unidentified or self.core.multi_matcher.get_dat_list())
+        has_saved = self.core.has_saved_session()
+        is_dirty = bool(self.core.session_dirty)
+        return {
+            "has_content": has_content,
+            "has_saved": has_saved,
+            "is_dirty": is_dirty,
+            "identified": identified,
+            "unidentified": unidentified,
+        }
+
+    def _emit_session_state(self) -> None:
+        self.session_state_changed.emit(self.get_session_state())
+
+    def save_session_snapshot(self) -> dict:
+        self.core.persist_session()
+        self._emit_session_state()
+        return {"success": True}
+
+    def restore_saved_session(self) -> dict:
+        if not self.core.has_saved_session():
+            return {"error": "No saved session"}
+        self.core.restore_session()
+        self.refresh_all()
+        self._emit_session_state()
+        return {"success": True}
+
     def new_session(self) -> None:
         self.core.new_session()
-        self.core.persist_session()
         self.refresh_all()
+        self._emit_session_state()
 
     def load_dat(self, filepath: str) -> dict:
         res = self.core.load_dat(filepath)
         if res.get("error"):
             self.error_changed.emit(res["error"])
             return res
-        self.core.persist_session()
         self.refresh_all()
+        self._emit_session_state()
         return res
 
     def remove_dat(self, dat_id: str) -> dict:
@@ -283,8 +317,8 @@ class AppState(QtCore.QObject):
         if res.get("error"):
             self.error_changed.emit(res["error"])
             return res
-        self.core.persist_session()
         self.refresh_all()
+        self._emit_session_state()
         return res
 
     def force_identify(self, paths: List[str]) -> dict:
@@ -292,8 +326,8 @@ class AppState(QtCore.QObject):
         if res.get("error"):
             self.error_changed.emit(res["error"])
             return res
-        self.core.persist_session()
         self.refresh_all()
+        self._emit_session_state()
         return res
 
     def add_unidentified_to_local_dat(self, entries: List[Dict[str, Any]]) -> dict:
@@ -301,9 +335,9 @@ class AppState(QtCore.QObject):
         if res.get("error"):
             self.error_changed.emit(res["error"])
             return res
-        self.core.persist_session()
         self.dat_library_list()
         self.refresh_all()
+        self._emit_session_state()
         return res
 
     def add_to_edit_dat(self, entries: List[Dict[str, Any]], target_dat_id: str) -> dict:
@@ -311,16 +345,70 @@ class AppState(QtCore.QObject):
         if res.get("error"):
             self.error_changed.emit(res["error"])
             return res
-        self.core.persist_session()
         self.dat_library_list()
         self.refresh_all()
+        self._emit_session_state()
         return res
 
     def suggest_local_dat_metadata(self, scan_id: str, limit: int = 8) -> dict:
         return self.core.suggest_local_dat_metadata(scan_id, limit=limit)
 
+    def get_metadata_scraper_settings(self) -> dict:
+        return self.core.get_metadata_scraper_settings()
+
+    def update_metadata_scraper_settings(
+        self,
+        *,
+        source: Optional[str] = None,
+        screenscraper_user: Optional[str] = None,
+        screenscraper_password: Optional[str] = None,
+        screenscraper_devid: Optional[str] = None,
+        screenscraper_devpassword: Optional[str] = None,
+        screenscraper_softname: Optional[str] = None,
+        thegamesdb_api_key: Optional[str] = None,
+    ) -> dict:
+        return self.core.update_metadata_scraper_settings(
+            source=source,
+            screenscraper_user=screenscraper_user,
+            screenscraper_password=screenscraper_password,
+            screenscraper_devid=screenscraper_devid,
+            screenscraper_devpassword=screenscraper_devpassword,
+            screenscraper_softname=screenscraper_softname,
+            thegamesdb_api_key=thegamesdb_api_key,
+        )
+
+    def get_cached_game_metadata(self, game_name: str = "", crc32: str = "") -> dict:
+        return self.core.get_cached_game_metadata(game_name=game_name, crc32=crc32)
+
+    def get_skraper_bridge_settings(self) -> dict:
+        return self.core.get_skraper_bridge_settings()
+
+    def update_skraper_bridge_settings(
+        self,
+        *,
+        path: Optional[str] = None,
+        export_dir: Optional[str] = None,
+    ) -> dict:
+        return self.core.update_skraper_bridge_settings(path=path, export_dir=export_dir)
+
+    def export_collection_for_skraper(self, targets: List[Dict[str, Any]]) -> dict:
+        res = self.core.export_collection_for_skraper(targets)
+        if res.get("error"):
+            self.error_changed.emit(str(res.get("error", "")))
+        return res
+
+    def refresh_game_metadata(self, game_name: str, system: str = "", crc32: str = "") -> dict:
+        _ = (game_name, system, crc32)
+        return {"error": self.t("internal_scraper_removed")}
+
+    def queue_collection_metadata_refresh(self, targets: List[Dict[str, Any]]) -> bool:
+        _ = targets
+        self.error_changed.emit(self.t("internal_scraper_removed"))
+        return False
+
     def fetch_online_metadata_hints(self, query: str, system: str = "", limit: int = 6) -> dict:
-        return self.core.fetch_online_metadata_hints(query, system=system, limit=limit)
+        _ = (query, system, limit)
+        return {"error": self.t("internal_scraper_removed")}
 
     def start_scan(self, folder: str, recursive: bool, scan_archives: bool, blindmatch: str) -> None:
         if self._scan_thread and self._scan_thread.isRunning():
@@ -335,6 +423,8 @@ class AppState(QtCore.QObject):
         self.results_changed.emit(self.results)
         self._scan_live_last_emit_ts = 0.0
         self._scan_live_last_emit_count = 0
+        self._scan_live_identified_count = 0
+        self._scan_live_unidentified_count = 0
         self._scan_ui_last_emit_ts = 0.0
         self._scan_ui_last_emit_count = 0
         self._scan_ui_last_phase = "scan"
@@ -355,6 +445,27 @@ class AppState(QtCore.QObject):
         worker.failed.connect(worker.deleteLater)
         self._scan_thread.finished.connect(self._scan_thread.deleteLater)
         self._scan_thread.start()
+
+    def _sync_live_results_snapshot(self, *, force_full: bool = False) -> None:
+        if force_full:
+            self.results = self.core.get_results()
+            self._scan_live_identified_count = len((self.results or {}).get("identified", []) or [])
+            self._scan_live_unidentified_count = len((self.results or {}).get("unidentified", []) or [])
+            return
+        delta = self.core.get_results_delta(
+            identified_from=self._scan_live_identified_count,
+            unidentified_from=self._scan_live_unidentified_count,
+        )
+        identified_rows = list(delta.get("identified", []) or [])
+        unidentified_rows = list(delta.get("unidentified", []) or [])
+        if identified_rows:
+            self.results.setdefault("identified", []).extend(identified_rows)
+        if unidentified_rows:
+            self.results.setdefault("unidentified", []).extend(unidentified_rows)
+        self._scan_live_identified_count = int(delta.get("identified_total", self._scan_live_identified_count) or 0)
+        self._scan_live_unidentified_count = int(
+            delta.get("unidentified_total", self._scan_live_unidentified_count) or 0
+        )
 
     def _on_scan_progress(self, current: int, total: int) -> None:
         self.core.scan_progress = current
@@ -407,7 +518,7 @@ class AppState(QtCore.QObject):
             if (now - self._scan_live_last_emit_ts) >= results_time_threshold:
                 should_emit = True
             if should_emit:
-                self.results = self.core.get_results()
+                self._sync_live_results_snapshot(force_full=False)
                 self.results_changed.emit(self.results)
                 self._scan_live_last_emit_ts = now
                 self._scan_live_last_emit_count = safe_current
@@ -421,13 +532,19 @@ class AppState(QtCore.QObject):
             monitor_action(f"[!] scan:error {res['error']}")
         else:
             monitor_action("[!] scan:finished")
-        self.core.persist_session()
         self._scan_live_last_emit_ts = 0.0
         self._scan_live_last_emit_count = 0
+        self._sync_live_results_snapshot(force_full=True)
         self._scan_ui_last_emit_ts = 0.0
         self._scan_ui_last_emit_count = 0
         self._scan_ui_last_phase = "idle"
-        self.refresh_all()
+        self._scan_live_identified_count = 0
+        self._scan_live_unidentified_count = 0
+        self.refresh_status()
+        self.results_changed.emit(self.results)
+        self.refresh_missing()
+        self.refresh_dashboard_intel()
+        self._emit_session_state()
 
     def _on_scan_failed(self, message: str) -> None:
         self._scan_worker = None
@@ -440,6 +557,8 @@ class AppState(QtCore.QObject):
         self._scan_ui_last_emit_ts = 0.0
         self._scan_ui_last_emit_count = 0
         self._scan_ui_last_phase = "idle"
+        self._scan_live_identified_count = 0
+        self._scan_live_unidentified_count = 0
         self.refresh_status()
 
     def _clear_organize_refs(self, thread: Optional[QtCore.QThread] = None) -> None:
@@ -500,8 +619,8 @@ class AppState(QtCore.QObject):
         self._organize_worker = None
         if res.get("error"):
             self.error_changed.emit(res["error"])
-        self.core.persist_session()
         self.refresh_all()
+        self._emit_session_state()
         self.organize_finished.emit(res)
 
     def _on_organize_failed(self, message: str) -> None:
@@ -528,7 +647,6 @@ class AppState(QtCore.QObject):
         res = self.core.load_collection(filepath)
         if res.get("error"):
             self.error_changed.emit(res["error"])
-        self.core.persist_session()
         # Force immediate UI refresh so tables repopulate after load.
         self.status = self.core.get_status()
         self.status_changed.emit(self.status)
@@ -537,6 +655,7 @@ class AppState(QtCore.QObject):
         self.missing = self.core.get_missing()
         self.missing_changed.emit(self.missing)
         self.refresh_dashboard_intel()
+        self._emit_session_state()
         if res.get("success"):
             self.last_collection_path = str(filepath)
         return res
@@ -577,9 +696,33 @@ class AppState(QtCore.QObject):
         res = self.core.dat_library_load(dat_id)
         if res.get("error"):
             self.error_changed.emit(res["error"])
-        self.core.persist_session()
         self.refresh_all()
+        self._emit_session_state()
         return res
+
+    def queue_dat_library_load(self, dat_id: str) -> bool:
+        safe_dat_id = str(dat_id or "").strip()
+        if not safe_dat_id:
+            return False
+
+        def _done(res: dict) -> None:
+            if res.get("error"):
+                self.error_changed.emit(str(res.get("error")))
+                return
+            self.refresh_all()
+            self._emit_session_state()
+
+        def _failed(message: str) -> None:
+            self.error_changed.emit(message)
+
+        self._enqueue_dat_task(
+            name=f"dat_library_load:{safe_dat_id}",
+            func=self.core.dat_library_load,
+            args=(safe_dat_id,),
+            on_finished=_done,
+            on_failed=_failed,
+        )
+        return True
 
     def dat_library_remove(self, dat_id: str) -> dict:
         res = self.core.dat_library_remove(dat_id)
@@ -587,10 +730,36 @@ class AppState(QtCore.QObject):
             self.error_changed.emit(res["error"])
             self.dat_library_list()
             return res
-        self.core.persist_session()
         self.dat_library_list()
         self.refresh_all()
+        self._emit_session_state()
         return res
+
+    def queue_remove_dat(self, dat_id: str) -> bool:
+        safe_dat_id = str(dat_id or "").strip()
+        if not safe_dat_id:
+            return False
+
+        def _done(res: dict) -> None:
+            if res.get("error"):
+                self.error_changed.emit(str(res.get("error")))
+                self.dat_library_list()
+                return
+            self.dat_library_list()
+            self.refresh_all()
+            self._emit_session_state()
+
+        def _failed(message: str) -> None:
+            self.error_changed.emit(message)
+
+        self._enqueue_dat_task(
+            name=f"remove_dat:{safe_dat_id}",
+            func=self.core.remove_dat,
+            args=(safe_dat_id,),
+            on_finished=_done,
+            on_failed=_failed,
+        )
+        return True
 
     def dat_sources_list(self) -> None:
         self.refresh_dat_downloader_catalog()
@@ -666,8 +835,10 @@ class AppState(QtCore.QObject):
         name: str,
         func,
         args: tuple,
-        done_signal: QtCore.SignalInstance,
-        on_failed_payload,
+        done_signal: Optional[QtCore.SignalInstance] = None,
+        on_failed_payload=None,
+        on_finished=None,
+        on_failed=None,
     ) -> None:
         self._dat_task_queue.append(
             {
@@ -676,6 +847,8 @@ class AppState(QtCore.QObject):
                 "args": args,
                 "done_signal": done_signal,
                 "on_failed_payload": on_failed_payload,
+                "on_finished": on_finished,
+                "on_failed": on_failed,
             }
         )
         self._drain_dat_task_queue()
@@ -704,15 +877,27 @@ class AppState(QtCore.QObject):
 
         def _on_finished(res: dict) -> None:
             payload = res if isinstance(res, dict) else {"error": str(res)}
-            task["done_signal"].emit(payload)
+            callback = task.get("on_finished")
+            if callable(callback):
+                callback(payload)
+                return
+            done_signal = task.get("done_signal")
+            if done_signal is not None:
+                done_signal.emit(payload)
 
         def _on_failed(message: str) -> None:
             self.log_message.emit(f"[!] {message}")
+            callback = task.get("on_failed")
+            if callable(callback):
+                callback(message)
+                return
             try:
                 payload = task["on_failed_payload"](message)
             except Exception:
                 payload = {"error": message}
-            task["done_signal"].emit(payload)
+            done_signal = task.get("done_signal")
+            if done_signal is not None:
+                done_signal.emit(payload)
 
         worker.finished.connect(_on_finished)
         worker.failed.connect(_on_failed)
@@ -1313,9 +1498,13 @@ class AppState(QtCore.QObject):
         return res
 
     def _run_tool(self, name: str, func, args: tuple, done_signal: QtCore.SignalInstance, use_progress: bool) -> None:
-        if self._tool_thread and self._tool_thread.isRunning():
-            self.log_message.emit(f"[!] {self.t('busy_operation')}")
-            return
+        if self._tool_thread:
+            try:
+                if self._tool_thread.isRunning():
+                    self.log_message.emit(f"[!] {self.t('busy_operation')}")
+                    return
+            except RuntimeError:
+                self._tool_thread = None
         self._tool_thread = QtCore.QThread()
 
         def _progress(current: int, total: int, filename: str = "") -> None:
@@ -1329,6 +1518,7 @@ class AppState(QtCore.QObject):
         worker.finished.connect(worker.deleteLater)
         worker.failed.connect(worker.deleteLater)
         self._tool_thread.finished.connect(self._tool_thread.deleteLater)
+        self._tool_thread.finished.connect(lambda: setattr(self, "_tool_thread", None))
 
         def _on_finished(res: dict) -> None:
             if res.get("error"):

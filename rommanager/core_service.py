@@ -42,6 +42,7 @@ from .parser import DATParser
 from .reporter import MissingROMReporter
 from .scanner import FileScanner
 from .session_state import (
+    SESSION_STATE_PATH,
     build_snapshot,
     clear_snapshot,
     load_snapshot,
@@ -51,7 +52,7 @@ from .session_state import (
 )
 from .monitor import monitor_action
 from .settings import get_effective_profile, load_settings, save_settings
-from .shared_config import DATS_DIR, DEFAULT_REGION_COLOR, REGION_COLORS, STRATEGIES
+from .shared_config import DATS_DIR, DEFAULT_REGION_COLOR, EXPORTS_DIR, REGION_COLORS, STRATEGIES
 from .utils import format_size
 
 try:
@@ -983,7 +984,10 @@ class CoreService:
         self.scan_phase = "idle"
         self.blindmatch_mode = False
         self.blindmatch_system = ""
+        self.session_dirty = False
         self.settings = load_settings()
+        self._metadata_cache_path = Path(DATS_DIR).parent / "metadata_cache.json"
+        self._metadata_art_dir = Path(DATS_DIR).parent / "metadata_art"
         self._scan_thread: Optional[threading.Thread] = None
         self._myrient_fetcher = MyrientFetcher()
         self._local_overlay_dir = Path(DATS_DIR) / "_local"
@@ -1018,6 +1022,293 @@ class CoreService:
         self.settings["ui_state"]["pyside6"] = safe_payload
         save_settings(self.settings)
 
+    def _load_metadata_cache(self) -> Dict[str, Any]:
+        try:
+            if self._metadata_cache_path.exists():
+                raw = json.loads(self._metadata_cache_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    return raw
+        except Exception:
+            pass
+        return {"by_game": {}, "by_crc32": {}}
+
+    def _save_metadata_cache(self, payload: Dict[str, Any]) -> None:
+        safe = payload if isinstance(payload, dict) else {"by_game": {}, "by_crc32": {}}
+        if not isinstance(safe.get("by_game"), dict):
+            safe["by_game"] = {}
+        if not isinstance(safe.get("by_crc32"), dict):
+            safe["by_crc32"] = {}
+        self._metadata_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._metadata_cache_path.write_text(json.dumps(safe, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _metadata_art_slug(self, game_name: str, crc32: str = "") -> str:
+        safe_crc = str(crc32 or "").strip().upper()
+        if safe_crc:
+            return safe_crc
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(game_name or "").strip())
+        safe_name = safe_name.strip("._-")
+        return safe_name[:96] or "metadata_art"
+
+    def _cache_metadata_artwork(self, item: Dict[str, Any], game_name: str, crc32: str = "") -> Dict[str, Any]:
+        safe_item = dict(item) if isinstance(item, dict) else {}
+        image_url = str(safe_item.get("image_url", "") or "").strip()
+        if not image_url:
+            safe_item.pop("image_cached_path", None)
+            return safe_item
+        try:
+            req = urllib.request.Request(image_url, headers={"User-Agent": "R0MM/2 MetadataCache"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                blob = resp.read()
+                content_type = str(resp.headers.get("Content-Type", "") or "").lower()
+            if not blob:
+                return safe_item
+            ext = Path(urlsplit(image_url).path).suffix.lower()
+            if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
+                if "png" in content_type:
+                    ext = ".png"
+                elif "jpeg" in content_type or "jpg" in content_type:
+                    ext = ".jpg"
+                elif "webp" in content_type:
+                    ext = ".webp"
+                elif "gif" in content_type:
+                    ext = ".gif"
+                else:
+                    ext = ".img"
+            self._metadata_art_dir.mkdir(parents=True, exist_ok=True)
+            out_path = self._metadata_art_dir / f"{self._metadata_art_slug(game_name, crc32)}{ext}"
+            out_path.write_bytes(blob)
+            safe_item["image_cached_path"] = str(out_path)
+        except Exception:
+            pass
+        return safe_item
+
+    def _refresh_and_store_game_metadata(self, game_name: str, system: str = "", crc32: str = "") -> Dict[str, Any]:
+        safe_game = str(game_name or "").strip()
+        if not safe_game:
+            return {"error": "game name required"}
+        result = self.fetch_online_metadata_hints(safe_game, system=system, limit=1)
+        if result.get("error"):
+            return result
+        items = list(result.get("items", []) or [])
+        if not items:
+            return {"error": "no metadata found"}
+        chosen = dict(items[0]) if isinstance(items[0], dict) else {}
+        chosen["game_name"] = safe_game
+        if system:
+            chosen["system"] = str(system or "").strip()
+        safe_crc = str(crc32 or "").strip().upper()
+        if safe_crc:
+            chosen["crc32"] = safe_crc
+        chosen = self._cache_metadata_artwork(chosen, safe_game, safe_crc)
+        cache = self._load_metadata_cache()
+        cache.setdefault("by_game", {})[safe_game] = dict(chosen)
+        if safe_crc:
+            cache.setdefault("by_crc32", {})[safe_crc] = dict(chosen)
+        self._save_metadata_cache(cache)
+        return {"item": chosen}
+
+    def get_cached_game_metadata(self, game_name: str = "", crc32: str = "") -> Dict[str, Any]:
+        cache = self._load_metadata_cache()
+        safe_crc = str(crc32 or "").strip().upper()
+        safe_name = str(game_name or "").strip()
+        if safe_crc:
+            row = cache.get("by_crc32", {}).get(safe_crc)
+            if isinstance(row, dict):
+                return dict(row)
+        if safe_name:
+            row = cache.get("by_game", {}).get(safe_name)
+            if isinstance(row, dict):
+                return dict(row)
+        return {}
+
+    def refresh_game_metadata(self, game_name: str, system: str = "", crc32: str = "") -> Dict[str, Any]:
+        _ = (game_name, system, crc32)
+        return {"error": "internal metadata scraper removed"}
+
+    def refresh_collection_metadata(
+        self,
+        targets: List[Dict[str, Any]],
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> Dict[str, Any]:
+        _ = (targets, progress_callback)
+        return {"error": "internal metadata scraper removed"}
+
+    def get_skraper_bridge_settings(self) -> Dict[str, Any]:
+        metadata = self.settings.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        bridge = metadata.get("skraper", {})
+        if not isinstance(bridge, dict):
+            bridge = {}
+        default_export_dir = str(Path(EXPORTS_DIR) / "skraper")
+        return {
+            "path": str(bridge.get("path", "") or "").strip(),
+            "export_dir": str(bridge.get("export_dir", default_export_dir) or default_export_dir).strip()
+            or default_export_dir,
+        }
+
+    def update_skraper_bridge_settings(
+        self,
+        *,
+        path: Optional[str] = None,
+        export_dir: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(self.settings.get("metadata"), dict):
+            self.settings["metadata"] = {}
+        metadata = self.settings["metadata"]
+        if not isinstance(metadata.get("skraper"), dict):
+            metadata["skraper"] = {}
+        bridge = metadata["skraper"]
+
+        if path is not None:
+            bridge["path"] = str(path or "").strip()
+        if export_dir is not None:
+            safe_export_dir = str(export_dir or "").strip() or str(Path(EXPORTS_DIR) / "skraper")
+            bridge["export_dir"] = safe_export_dir
+
+        save_settings(self.settings)
+        return self.get_skraper_bridge_settings()
+
+    def export_collection_for_skraper(self, targets: List[Dict[str, Any]]) -> Dict[str, Any]:
+        rows = [row for row in (targets or []) if isinstance(row, dict)]
+        if not rows:
+            return {"error": "no export targets selected"}
+
+        unique: List[Dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for row in rows:
+            game_name = str(row.get("game_name", "") or row.get("rom_name", "") or "").strip()
+            system = str(row.get("system", "") or "").strip()
+            crc32 = str(row.get("crc32", "") or "").strip().upper()
+            key = (game_name.lower(), system.lower(), crc32)
+            if not game_name or key in seen:
+                continue
+            seen.add(key)
+            unique.append(
+                {
+                    "game_name": game_name,
+                    "rom_name": str(row.get("rom_name", "") or "").strip(),
+                    "system": system,
+                    "region": str(row.get("region", "") or "").strip(),
+                    "crc32": crc32,
+                    "md5": str(row.get("md5", "") or "").strip(),
+                    "sha1": str(row.get("sha1", "") or "").strip(),
+                    "size": int(row.get("size", 0) or 0),
+                    "path": str(row.get("path", "") or "").strip(),
+                }
+            )
+
+        if not unique:
+            return {"error": "no export targets selected"}
+
+        settings = self.get_skraper_bridge_settings()
+        export_root = Path(str(settings.get("export_dir", "") or str(Path(EXPORTS_DIR) / "skraper")).strip())
+        try:
+            export_root.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return {"error": str(exc)}
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        manifest_path = export_root / f"skraper_manifest_{stamp}.json"
+        titles_path = export_root / f"skraper_titles_{stamp}.txt"
+        payload = {
+            "generated_at": stamp,
+            "count": len(unique),
+            "items": unique,
+        }
+        try:
+            manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            lines = [
+                "R0MM Skraper Export",
+                f"Generated: {stamp}",
+                f"Count: {len(unique)}",
+                "",
+            ]
+            for row in unique:
+                lines.append(
+                    " | ".join(
+                        [
+                            str(row.get("system", "") or "-"),
+                            str(row.get("game_name", "") or "-"),
+                            str(row.get("rom_name", "") or "-"),
+                            str(row.get("crc32", "") or "-"),
+                        ]
+                    )
+                )
+            titles_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+        except Exception as exc:
+            return {"error": str(exc)}
+
+        monitor_action(f"[*] skraper:export count={len(unique)} manifest={manifest_path}")
+        return {
+            "success": True,
+            "count": len(unique),
+            "export_dir": str(export_root),
+            "manifest_path": str(manifest_path),
+            "titles_path": str(titles_path),
+        }
+
+    def get_metadata_scraper_settings(self) -> Dict[str, Any]:
+        metadata = self.settings.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        scraper = metadata.get("scraper", {})
+        if not isinstance(scraper, dict):
+            scraper = {}
+        return {
+            "source": str(scraper.get("source", "screenscraper") or "screenscraper"),
+            "screenscraper_user": str(scraper.get("screenscraper_user", "") or ""),
+            "screenscraper_password": str(scraper.get("screenscraper_password", "") or ""),
+            "screenscraper_devid": str(
+                os.environ.get("R0MM_SCREENSCRAPER_DEVID", scraper.get("screenscraper_devid", "")) or ""
+            ),
+            "screenscraper_devpassword": str(
+                os.environ.get("R0MM_SCREENSCRAPER_DEVPASSWORD", scraper.get("screenscraper_devpassword", "")) or ""
+            ),
+            "screenscraper_softname": str(
+                os.environ.get("R0MM_SCREENSCRAPER_SOFTNAME", scraper.get("screenscraper_softname", "R0MM")) or "R0MM"
+            ),
+            "thegamesdb_api_key": str(scraper.get("thegamesdb_api_key", "") or ""),
+        }
+
+    def update_metadata_scraper_settings(
+        self,
+        *,
+        source: Optional[str] = None,
+        screenscraper_user: Optional[str] = None,
+        screenscraper_password: Optional[str] = None,
+        screenscraper_devid: Optional[str] = None,
+        screenscraper_devpassword: Optional[str] = None,
+        screenscraper_softname: Optional[str] = None,
+        thegamesdb_api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(self.settings.get("metadata"), dict):
+            self.settings["metadata"] = {}
+        metadata = self.settings["metadata"]
+        if not isinstance(metadata.get("scraper"), dict):
+            metadata["scraper"] = {}
+        scraper = metadata["scraper"]
+
+        if source is not None:
+            safe_source = str(source or "").strip().lower()
+            if safe_source in {"screenscraper", "thegamesdb"}:
+                scraper["source"] = safe_source
+        if screenscraper_user is not None:
+            scraper["screenscraper_user"] = str(screenscraper_user or "").strip()
+        if screenscraper_password is not None:
+            scraper["screenscraper_password"] = str(screenscraper_password or "").strip()
+        if screenscraper_devid is not None:
+            scraper["screenscraper_devid"] = str(screenscraper_devid or "").strip()
+        if screenscraper_devpassword is not None:
+            scraper["screenscraper_devpassword"] = str(screenscraper_devpassword or "").strip()
+        if screenscraper_softname is not None:
+            scraper["screenscraper_softname"] = str(screenscraper_softname or "R0MM").strip() or "R0MM"
+        if thegamesdb_api_key is not None:
+            scraper["thegamesdb_api_key"] = str(thegamesdb_api_key or "").strip()
+
+        save_settings(self.settings)
+        return self.get_metadata_scraper_settings()
+
     # Session persistence
     def persist_session(self) -> None:
         snapshot = build_snapshot(
@@ -1030,6 +1321,16 @@ class CoreService:
             },
         )
         save_snapshot(snapshot)
+        self.session_dirty = False
+
+    def mark_session_dirty(self) -> None:
+        self.session_dirty = True
+
+    def has_saved_session(self) -> bool:
+        try:
+            return SESSION_STATE_PATH.exists()
+        except Exception:
+            return False
 
     def restore_session(self) -> None:
         snap = load_snapshot()
@@ -1040,14 +1341,17 @@ class CoreService:
         extras = snap.get("extras", {})
         self.blindmatch_mode = bool(extras.get("blindmatch_mode", False))
         self.blindmatch_system = extras.get("blindmatch_system", "")
+        self.session_dirty = False
 
-    def new_session(self) -> None:
+    def new_session(self, clear_saved: bool = False) -> None:
         self.multi_matcher = MultiROMMatcher()
         self.identified = []
         self.unidentified = []
         self.blindmatch_mode = False
         self.blindmatch_system = ""
-        clear_snapshot()
+        self.session_dirty = False
+        if clear_saved:
+            clear_snapshot()
 
     # Filesystem browsing
     def fs_list(self, path: str) -> dict:
@@ -1086,6 +1390,7 @@ class CoreService:
             dat_info, roms = DATParser.parse_with_info(filepath)
             self.multi_matcher.add_dat(dat_info, roms)
             self._rematch_all()
+            self.mark_session_dirty()
             return {"success": True, "dat": dat_info.to_dict()}
         except Exception as exc:
             return {"error": str(exc)}
@@ -1095,6 +1400,7 @@ class CoreService:
             return {"error": "dat_id required"}
         self.multi_matcher.remove_dat(dat_id)
         self._rematch_all()
+        self.mark_session_dirty()
         return {"success": True}
 
     # Scan
@@ -1125,9 +1431,13 @@ class CoreService:
         self.scanning = True
         self.scan_progress = 0
         self.scan_total = 0
-        self.scan_phase = "scan"
+        self.scan_phase = "count"
         self.blindmatch_mode = bool(blindmatch_system)
         self.blindmatch_system = blindmatch_system.strip()
+
+        self.scan_total = FileScanner.count_scannable_files(folder, recursive, scan_archives)
+        if progress_callback:
+            progress_callback(0, self.scan_total)
 
         def _progress(current: int, total: int) -> None:
             self.scan_progress = current
@@ -1136,7 +1446,13 @@ class CoreService:
             if progress_callback:
                 progress_callback(current, total)
 
-        scanned = FileScanner.scan_folder(folder, recursive, scan_archives, progress_callback=_progress)
+        scanned = FileScanner.scan_folder(
+            folder,
+            recursive,
+            scan_archives,
+            progress_callback=_progress,
+            known_total=self.scan_total,
+        )
 
         if self.blindmatch_mode:
             self.scan_phase = "compare"
@@ -1190,6 +1506,7 @@ class CoreService:
 
         self.scanning = False
         self.scan_phase = "idle"
+        self.mark_session_dirty()
         return {"success": True, "identified": len(self.identified), "unidentified": len(self.unidentified)}
 
     def _rematch_all(self) -> None:
@@ -1229,6 +1546,7 @@ class CoreService:
                 remaining.append(f)
         self.unidentified = remaining
         self.identified.extend(to_promote)
+        self.mark_session_dirty()
         return {"success": True, "forced": len(to_promote)}
 
     @staticmethod
@@ -1397,48 +1715,8 @@ class CoreService:
         }
 
     def fetch_online_metadata_hints(self, query: str, system: str = "", limit: int = 6) -> dict:
-        term = self._normalize_overlay_text(query)
-        if not term:
-            return {"error": "query required"}
-        if system:
-            term = f"{term} {self._normalize_overlay_text(system)}"
-
-        params = urlencode(
-            {
-                "action": "opensearch",
-                "search": term,
-                "limit": max(1, min(10, int(limit or 6))),
-                "namespace": 0,
-                "format": "json",
-            }
-        )
-        url = f"https://en.wikipedia.org/w/api.php?{params}"
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "R0MM/2 MetadataHint (+local desktop app)"},
-            method="GET",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
-        except Exception as exc:
-            return {"error": str(exc)}
-
-        items: List[dict] = []
-        try:
-            titles = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
-            descriptions = payload[2] if isinstance(payload, list) and len(payload) > 2 else []
-            links = payload[3] if isinstance(payload, list) and len(payload) > 3 else []
-            for idx, title in enumerate(titles):
-                t = str(title or "").strip()
-                if not t:
-                    continue
-                desc = str(descriptions[idx] if idx < len(descriptions) else "").strip()
-                link = str(links[idx] if idx < len(links) else "").strip()
-                items.append({"title": t, "description": desc, "url": link, "source": "wikipedia"})
-        except Exception:
-            items = []
-        return {"query": query, "items": items}
+        _ = (query, system, limit)
+        return {"error": "internal metadata scraper removed"}
 
     def add_unidentified_to_local_dat(self, entries: List[Dict[str, Any]]) -> dict:
         if not entries:
@@ -1734,6 +2012,16 @@ class CoreService:
         return {
             "identified": [self._serialize_scanned(f) for f in self.identified],
             "unidentified": [self._serialize_scanned(f) for f in self.unidentified],
+        }
+
+    def get_results_delta(self, identified_from: int = 0, unidentified_from: int = 0) -> dict:
+        safe_identified_from = max(0, min(len(self.identified), int(identified_from or 0)))
+        safe_unidentified_from = max(0, min(len(self.unidentified), int(unidentified_from or 0)))
+        return {
+            "identified": [self._serialize_scanned(f) for f in self.identified[safe_identified_from:]],
+            "unidentified": [self._serialize_scanned(f) for f in self.unidentified[safe_unidentified_from:]],
+            "identified_total": len(self.identified),
+            "unidentified_total": len(self.unidentified),
         }
 
     def get_missing(self) -> dict:
@@ -3651,6 +3939,7 @@ if ($killed.Count -gt 0) { [string]::Join(',', $killed) }
                     continue
         self.identified = [ScannedFile.from_dict(s) for s in col.identified]
         self.unidentified = [ScannedFile.from_dict(s) for s in col.unidentified]
+        self.mark_session_dirty()
         return {"success": True, "collection": col.to_dict()}
 
     def list_collections(self) -> dict:
@@ -3683,6 +3972,7 @@ if ($killed.Count -gt 0) { [string]::Join(',', $killed) }
             _, roms = DATParser.parse(info.filepath)
             self.multi_matcher.add_dat(info, roms)
             self._rematch_all()
+            self.mark_session_dirty()
             return {"success": True, "dat": info.to_dict()}
         except Exception as exc:
             return {"error": str(exc)}
@@ -3696,6 +3986,7 @@ if ($killed.Count -gt 0) { [string]::Join(',', $killed) }
             if was_active:
                 self.multi_matcher.remove_dat(dat_id)
                 self._rematch_all()
+                self.mark_session_dirty()
             return {"success": True, "removed_active": was_active}
         except Exception as exc:
             return {"error": str(exc)}

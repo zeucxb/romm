@@ -42,6 +42,6 @@ __all__ = [
 ]
 
 def run_web(host='127.0.0.1', port=5000):
-    """Run the web interface"""
-    from .web import run_server
-    run_server(host, port, shutdown_on_idle=True)
+    """Legacy compatibility stub for the archived web frontend."""
+    _ = (host, port)
+    raise RuntimeError("The web frontend was archived under _OLD/ and is not part of the active release tree.")

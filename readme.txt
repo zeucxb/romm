@@ -1,33 +1,54 @@
 # R0MM ver 0.30rc
 
-Web-Based ROM Organization System
+PySide6 Desktop ROM Organization System
 
 ---
 
-## Recent Changes (2026-03-01)
+## Recent Changes (2026-03-02)
 - Fixed a PySide6 Tools tab crash when clicking "Refresh" in Collections/DATs (missing AppState refresh aliases).
 - Fixed torrent search button stuck state and invokeMethod warnings in PySide6 Downloads tab.
-- PySide6 now prompts on startup to optionally restore the previous session (layout, tabs, last collection) for faster cold starts.
+- PySide6 startup now restores lightweight UI state immediately, but only restores heavy scan results/DAT session data when a saved snapshot exists and the user explicitly accepts the restore prompt.
 - Restored a working torrent searcher in the Downloads tab with selectable Apibay/custom mirrors; magnets are sent to the JD queue.
 - Downloads tab split into Torrent (search + magnets) and Direct/JD (Myrient catalog + JDownloader queue) sub-tabs.
 - Downloads tab layout is now responsive for non-maximized windows: Torrent uses a compact control grid, Direct/JD uses a horizontal-or-vertical splitter, and the selected sub-tab plus staged inputs persist in UI state.
 - Dashboard is now always the initial view on startup and was refocused into a real home screen: quick start, next actions, session snapshot, and transfer status, without the old news-feed dependency.
 - Windows path display in PySide6 was normalized visually to backslashes in `Import & Scan` Operation Preview and related elided labels/tooltips, so `D:/...` now renders as `D:\...`.
 - Temporary local runtime artifacts under `.tmp/` are now ignored by Git so repository snapshots stay clean.
+- The built-in metadata scraper was removed from the active PySide6 flow. `Collection` now prepares local Skraper manifests instead of fetching metadata remotely, and `Local DAT` is back to local-only suggestions.
+- PySide6 navigation was re-split: `Import & Scan` is now `Rom Manager` and contains the scan/organize setup plus a transient `Scan Results` sub-tab that only appears after a scan in the current session. The top-level `Collection` view is now a system-grouped library browser for identified games, with per-game metadata/art refresh driven by the configured scraper source and a persistent metadata cache in `data/metadata_cache.json`.
+- `Rom Manager` now treats scan state as a manual snapshot workflow: the current session can be saved/loaded explicitly from the UI, while automatic per-change session writes were removed to avoid large JSON stalls.
+- Scan progress now does a fast pre-count pass before hashing, so the Nerve Center can show the real planned workload first and the active progress bar no longer sits at `100%` during file discovery.
+- Large PySide6 table refreshes were trimmed by disabling hot-path per-row insert churn (`setRowCount(...)` + sorting pause) and by pushing DAT activation/removal onto the existing background DAT worker queue instead of blocking the UI thread.
+- `Rom Manager` left-side setup controls now live inside a discreet vertical scroll area for smaller/non-maximized windows, preventing the `Organization Strategies` block from being clipped. The strategy checkboxes also gained a tiny height bump so labels no longer visually eat into each other.
+- `Collection` now uses an explicit Skraper bridge flow instead of an internal scraper: the main action understands selection context and exports the selected game, multiple selected games, or the currently focused system into a Skraper-ready manifest under the configured export folder. The detail pane still shows any already-cached local metadata/art, but the app no longer performs remote metadata fetches itself.
+- PySide6 startup is now always clean: there is no restore-session prompt anymore, no automatic snapshot load on boot, and no auto-restore of old working form state. The app opens directly on Dashboard with only lightweight window geometry/language restored; loading prior scan/DAT state is manual via `Rom Manager > Load Snapshot`.
+- `New Session` now clears only the in-memory working session and keeps the saved snapshot on disk, so `Save Session` / `Load Snapshot` remains a simple manual workflow instead of destroying the last saved state.
+- The old ScreenScraper/TheGamesDB credential flow is no longer part of the active UI. It was replaced by a lightweight `Skraper Setup` modal with only two fields: optional local `Skraper.exe` path and the export folder used for generated manifests/title lists. `Open Skraper` now launches the configured executable when present, or falls back to the Skraper website.
+- PySide6 session controls were moved out of `Rom Manager` and into the `Dashboard` header. The old top-right dashboard shortcut buttons were removed, and `Load Snapshot`, `Save Session`, and `New Session` now live in that top-right slot instead.
+- Non-PySide6 frontends and leftover Flutter scaffolding were archived under `_OLD/` so the active release tree now focuses on the native PySide6 desktop build only.
+- Older `build/` and `dist/` artifacts plus refactor helper scripts were archived under `_OLD/`, and the active `r0mm_pyside6.spec` now excludes Tk/legacy frontend modules so the rebuilt `dist/R0MM/R0MM.exe` is slimmer and PySide6-only.
+- Frozen PySide6 builds no longer bundle/copy the repository `data/` tree into `dist/R0MM/data/` on first launch. The packaged app now creates only the empty runtime folder skeleton (`dats`, `collections`, `imports`, etc.) and generates defaults at runtime, so no developer DATs, collections, snapshots, or session residue leak into a fresh `.exe`.
+- The Nerve Center label previously shown as `Saude do Banco` was renamed to `Taxa de Identificacao` to match what it actually measures: identified files as a percentage of current session results.
+- The special DAT `R0MM - Local Overrides` is now pinned to the top of the active DAT list and rendered with a subtle in-theme highlight so the user's manual-match overlay is always easy to spot.
 
 
 ## Desktop launch modes
 
-You can also start desktop interfaces directly:
+You can start the active desktop interface directly:
 
-- `python main.py --flet`
+- `python main.py`
 - `python main.py --pyside6`
-- `python main.py --gui`
-- `python -m rommanager` (opens launcher selector with all desktop modes)
+- `python -m rommanager` (opens PySide6 directly)
 
 PySide6 UI files:
 - `rommanager/gui_pyside6_views.py`
 - `rommanager/gui_pyside6_style.qss`
+
+Windows build:
+- A dedicated PySide6 build entrypoint is available at `r0mm_pyside6_entry.py`.
+- PyInstaller spec file: `r0mm_pyside6.spec`.
+- The packaged app now treats `data/` as portable beside the frozen `.exe`. On first launch, bundled defaults from the PyInstaller runtime bundle are copied into `dist/R0MM/data/`, which then remains writable and persistent.
+- Use the final packaged executable at `dist/R0MM/R0MM.exe`. Do not launch the intermediate PyInstaller executable from `build/`; that stub is not a distributable app and can fail with missing DLL paths.
 
 Backup options:
 - Full backup to `backups/` (zip, timestamped).
@@ -411,7 +432,7 @@ Default language at startup is **English**.
 Language switching refreshes labels in the PySide6 Import/Scan view (including section titles) and the drawer feedback.
 
 Module entry behavior:
-- `python -m rommanager` always opens the visual mode selector (launcher).
+- `python -m rommanager` now opens the PySide6 desktop app directly.
 
 
 ## 13. BlindMatch mode
@@ -426,13 +447,11 @@ How it works (best effort):
 
 Available in:
 - CLI: `--blindmatch-system <SYSTEM>`
-- Web UI: BlindMatch system field in scan section
-- Tkinter UI: BlindMatch toggle + system input
-- Flet UI: BlindMatch toggle + system input
+- PySide6 UI: BlindMatch toggle + system input
 
 ## 15. Advanced Settings foundation
 
-R0MM now includes a shared settings foundation (`~/.rommanager/settings.json`) used by CLI, Tkinter, Flet and Web runtime initialization.
+R0MM now includes a shared settings foundation (`~/.rommanager/settings.json`) used by CLI and PySide6 runtime initialization.
 
 Implemented foundations:
 - Collection profiles by objective: historical_preservation, mister_playset, retroarch_frontend, full_set_no_hacks.
@@ -450,20 +469,16 @@ CLI additions:
 - `--health-check`
 - `--metadata-db <path>`
 
-## 16. Flet Stability Protocol (Mandatory)
+## 16. Archived Frontends
 
-When changing Flet desktop UI (`rommanager/gui_flet.py`), follow the protocol in:
+The Flet/Web/Tkinter frontends are no longer part of the active release tree. They were archived under:
 
-- `docs/FLET_AGENT_PROTOCOL.md`
+- `_OLD/docs/FLET_AGENT_PROTOCOL.md`
+- `_OLD/rommanager/gui_flet.py`
+- `_OLD/rommanager/web.py`
+- `_OLD/rommanager/gui.py`
 
-This is mandatory to prevent regressions like:
-
-- `'Page' object has no attribute 'open'`
-
-Minimum rule set:
-- Treat Flet API usage as version-sensitive.
-- Do not ship dialog/overlay changes without compatibility fallback.
-- Document compatibility risk and manual validation steps in each PR.
+The active release target is PySide6 only.
 
 ---
 

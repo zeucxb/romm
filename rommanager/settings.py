@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from typing import Any, Dict
 
-from .shared_config import LOGS_DIR, SETTINGS_FILE
+from .shared_config import EXPORTS_DIR, LOGS_DIR, SETTINGS_FILE
 
 DEFAULT_SETTINGS_PATH = SETTINGS_FILE
 
@@ -72,6 +72,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "metadata": {
         "enabled": False,
         "db_path": "",
+        "skraper": {
+            "path": "",
+            "export_dir": os.path.join(EXPORTS_DIR, "skraper"),
+        },
     },
     "audit": {
         "enabled": True,

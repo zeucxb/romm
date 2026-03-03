@@ -178,9 +178,17 @@ class FileScanner:
         return True
     
     @staticmethod
+    def count_scannable_files(folder: str, recursive: bool = True, scan_archives: bool = True) -> int:
+        total = 0
+        for _filepath in FileScanner._iter_scannable_files(folder, recursive, scan_archives):
+            total += 1
+        return total
+
+    @staticmethod
     def scan_folder(folder: str, recursive: bool = True,
                    scan_archives: bool = True,
-                   progress_callback: Optional[Callable[[int, int], None]] = None
+                   progress_callback: Optional[Callable[[int, int], None]] = None,
+                   known_total: Optional[int] = None
                    ) -> List[ScannedFile]:
         """
         Scan all files in a folder.
@@ -197,6 +205,7 @@ class FileScanner:
         results = []
         processed = 0
         discovered = 0
+        fixed_total = max(0, int(known_total or 0))
 
         for filepath in FileScanner._iter_scannable_files(folder, recursive, scan_archives):
             discovered += 1
@@ -218,9 +227,9 @@ class FileScanner:
 
             processed += 1
             if progress_callback:
-                progress_callback(processed, discovered)
+                progress_callback(processed, fixed_total if fixed_total > 0 else discovered)
 
         if progress_callback and discovered == 0:
-            progress_callback(0, 0)
+            progress_callback(0, fixed_total if fixed_total > 0 else 0)
         
         return results

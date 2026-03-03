@@ -12,7 +12,7 @@ import traceback
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .gui_pyside6_state import AppState, LANG_EN, LANG_PT_BR
-from .gui_pyside6_views import DashboardView, ImportScanView, LibraryView, ToolsView, DownloadsView
+from .gui_pyside6_views import CollectionView, DashboardView, ImportScanView, ToolsView, DownloadsView
 from .gui_pyside6_widgets import COLORS, apply_global_style, subtle_label
 from .monitor import get_log_path, monitor_action, setup_runtime_monitor
 from . import __version__
@@ -178,10 +178,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setMinimumSize(1280, 720)
         self._build_ui()
         self._bind()
-        if self._prompt_restore_session():
-            self._restore_ui_state()
-        else:
-            monitor_action("[*] ui_state:restore:skipped_by_user")
+        self._restore_ui_state()
         if not getattr(self, "_restored_geometry", False):
             self.setWindowState(self.windowState() | QtCore.Qt.WindowState.WindowMaximized)
         self.state.refresh_all()
@@ -246,7 +243,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Views
         self.stack = QtWidgets.QStackedWidget()
         self.dashboard = DashboardView(self.state)
-        self.library = LibraryView(self.state)
+        self.library = CollectionView(self.state)
         self.import_scan = ImportScanView(self.state)
         self.tools = ToolsView(self.state)
         self.downloads = DownloadsView(self.state)
@@ -493,27 +490,9 @@ class MainWindow(QtWidgets.QMainWindow):
         payload = {
             "main": {
                 "geometry_b64": self._serialize_geometry(),
-                "active_view": int(self.stack.currentIndex()),
-                "search_text": self.search_field.text(),
                 "language": str(self.lang_combo.currentData() or LANG_EN),
-                "last_collection_path": str(self.state.last_collection_path or ""),
             },
         }
-        for key, view in (
-            ("dashboard", self.dashboard),
-            ("library", self.library),
-            ("import_scan", self.import_scan),
-            ("tools", self.tools),
-            ("downloads", self.downloads),
-        ):
-            exporter = getattr(view, "export_ui_state", None)
-            if callable(exporter):
-                try:
-                    view_state = exporter()
-                    if isinstance(view_state, dict):
-                        payload[key] = view_state
-                except Exception as exc:
-                    monitor_action(f"[!] ui_state:collect:{key}:error {exc}")
         return payload
 
     def _restore_ui_state(self) -> None:
@@ -536,34 +515,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 if idx >= 0:
                     self.lang_combo.setCurrentIndex(idx)
 
-            self.search_field.setText(str(main_state.get("search_text", "") or ""))
             self._restore_geometry(str(main_state.get("geometry_b64", "") or ""))
-
+            self.search_field.clear()
+            self.state.last_collection_path = ""
             self._set_view(0, emit_log=False)
-            last_col = str(main_state.get("last_collection_path", "") or "").strip()
-            if last_col and Path(last_col).exists():
-                try:
-                    self.state.load_collection(last_col)
-                except Exception as exc:
-                    monitor_action(f"[!] ui_state:restore:load_collection:error {exc}")
-
-            for key, view in (
-                ("dashboard", self.dashboard),
-                ("library", self.library),
-                ("import_scan", self.import_scan),
-                ("tools", self.tools),
-                ("downloads", self.downloads),
-            ):
-                applier = getattr(view, "apply_ui_state", None)
-                if callable(applier):
-                    try:
-                        applier(payload.get(key, {}))
-                    except Exception as exc:
-                        monitor_action(f"[!] ui_state:restore:{key}:error {exc}")
         finally:
             self._restoring_ui_state = False
 
     def _prompt_restore_session(self) -> bool:
+        if not self.state.core.has_saved_session():
+            return False
         try:
             platform = str(QtWidgets.QApplication.instance().platformName() or "").lower()
             if "offscreen" in platform:
@@ -668,7 +629,7 @@ class MainWindow(QtWidgets.QMainWindow):
             total=self._scan_total,
             phase=self._scan_phase,
         )
-        mode = "compare" if self._scan_phase == "compare" else "scan"
+        mode = self._scan_phase if self._scan_phase in {"count", "compare"} else "scan"
         if mode != self._scan_progress_mode:
             self._scan_progress_mode = mode
             self._scan_progress_prev = None
@@ -834,7 +795,14 @@ class MainWindow(QtWidgets.QMainWindow):
         safe_current = max(0, int(current or 0))
         safe_total = max(0, int(total or 0))
         safe_phase = str(phase or "scan").strip().lower()
-        if safe_total > 0:
+        if safe_phase == "count":
+            if safe_total > 0:
+                self.op_scan_label.setText(_tr("scan_prepare_progress", total=safe_total))
+                self.op_scan_bar.setText("[..........] PLAN")
+            else:
+                self.op_scan_label.setText(_tr("scan_prepare_starting"))
+                self.op_scan_bar.setText("[..........] WAIT")
+        elif safe_total > 0:
             if safe_phase == "compare":
                 self.op_scan_label.setText(_tr("scan_compare_progress", current=safe_current, total=safe_total))
             else:
@@ -951,7 +919,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _format_op_status_text(self, *, scanning: bool, phase: str = "idle") -> str:
         safe_phase = str(phase or "idle").strip().lower()
-        if scanning and safe_phase == "compare":
+        if scanning and safe_phase == "count":
+            state_text = _tr("monitor_preparing")
+        elif scanning and safe_phase == "compare":
             state_text = _tr("monitor_comparing")
         elif scanning:
             state_text = _tr("monitor_scanning")

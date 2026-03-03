@@ -234,6 +234,11 @@ QCheckBox {
     spacing: 8px;
     font-family: "Segoe UI", "Roboto", sans-serif;
 }
+QCheckBox[strategyOption="true"] {
+    min-height: 19px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
@@ -362,6 +367,40 @@ QProgressBar#NerveHandoffProgress {
 }
 QProgressBar#NerveHandoffProgress::chunk {
     background-color: #39FF14;
+}
+QScrollArea#SubtleScrollArea {
+    border: none;
+    background: transparent;
+}
+QScrollArea#SubtleScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+QScrollArea#SubtleScrollArea QScrollBar:vertical,
+QScrollArea#SubtleScrollArea QScrollBar:horizontal {
+    background: transparent;
+    width: 6px;
+    height: 6px;
+    margin: 0px;
+}
+QScrollArea#SubtleScrollArea QScrollBar::handle:vertical,
+QScrollArea#SubtleScrollArea QScrollBar::handle:horizontal {
+    background: rgba(57, 255, 20, 0.18);
+    min-height: 18px;
+    min-width: 18px;
+    border-radius: 0px;
+}
+QScrollArea#SubtleScrollArea QScrollBar::handle:vertical:hover,
+QScrollArea#SubtleScrollArea QScrollBar::handle:horizontal:hover {
+    background: rgba(57, 255, 20, 0.34);
+}
+QScrollArea#SubtleScrollArea QScrollBar::add-line,
+QScrollArea#SubtleScrollArea QScrollBar::sub-line,
+QScrollArea#SubtleScrollArea QScrollBar::add-page,
+QScrollArea#SubtleScrollArea QScrollBar::sub-page {
+    background: none;
+    border: none;
+    width: 0px;
+    height: 0px;
 }
 QScrollBar:vertical, QScrollBar:horizontal {
     background: #1A1A1A;

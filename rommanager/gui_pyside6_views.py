@@ -26,6 +26,8 @@ DEFAULT_MYRIENT_BASE_URL = "https://myrient.erista.me/files"
 DEFAULT_TORRENT_PROVIDER = "https://apibay.org"
 TORRENT_PROVIDERS = ("apibay", "torrentgalaxy", "yts", "eztv", "all", "custom")
 DEFAULT_TIMEOUT = 6
+SKRAPER_SITE = "https://www.skraper.net/"
+LOCAL_OVERRIDES_NAME = "R0MM - Local Overrides"
 
 
 def emit_state_log(state: AppState, message: str) -> None:
@@ -135,6 +137,140 @@ def collapse_dat_rows(rows: List[Dict[str, Any]], active_ids: Set[str]) -> List[
     return collapsed
 
 
+def _is_local_overrides_dat(row: Dict[str, Any]) -> bool:
+    name = str(row.get("system_name", "") or row.get("name", "") or "").strip()
+    if name == LOCAL_OVERRIDES_NAME:
+        return True
+    filepath = str(row.get("filepath", "") or "").strip().lower()
+    return filepath.endswith("\\_local\\r0mm - local overrides.xml") or filepath.endswith("/_local/r0mm - local overrides.xml")
+
+
+def _dat_display_sort_key(row: Dict[str, Any]) -> Tuple[int, str]:
+    name = str(row.get("system_name", "") or row.get("name", "") or "").strip().lower()
+    return (0 if _is_local_overrides_dat(row) else 1, name)
+
+
+def _skraper_summary_text(state: AppState, settings: Dict[str, Any]) -> str:
+    app_path = Path(str(settings.get("path", "") or "").strip()) if str(settings.get("path", "") or "").strip() else None
+    export_dir = str(settings.get("export_dir", "") or "").strip() or str(Path("data") / "exports" / "skraper")
+    if app_path and app_path.exists():
+        status_key = "skraper_bridge_status_ready"
+    elif app_path:
+        status_key = "skraper_bridge_status_missing"
+    else:
+        status_key = "skraper_bridge_status_site_only"
+    return state.t(
+        "skraper_bridge_summary_line",
+        status=state.t(status_key),
+        folder=normalize_win_path(export_dir),
+    )
+
+
+class SkraperBridgeDialog(QtWidgets.QDialog):
+    def __init__(self, state: AppState, parent: QtWidgets.QWidget | None = None):
+        super().__init__(parent)
+        self.state = state
+        self._settings = self.state.get_skraper_bridge_settings()
+        self.setWindowTitle(self.state.t("skraper_bridge_modal_title"))
+        self.setModal(True)
+        self.resize(620, 260)
+        self._build_ui()
+        self._apply_settings()
+
+    def _build_ui(self) -> None:
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        title = QtWidgets.QLabel(self.state.t("skraper_bridge_modal_body"))
+        title.setObjectName("Subtitle")
+        title.setWordWrap(True)
+        root.addWidget(title)
+
+        form = QtWidgets.QGridLayout()
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(8)
+        root.addLayout(form)
+
+        self.path_label = QtWidgets.QLabel(self.state.t("skraper_bridge_path"))
+        self.path_input = QtWidgets.QLineEdit()
+        self.path_input.setPlaceholderText(self.state.t("skraper_bridge_path"))
+        self.path_btn = QtWidgets.QPushButton(self.state.t("skraper_bridge_browse_path"))
+        form.addWidget(self.path_label, 0, 0)
+        form.addWidget(self.path_input, 0, 1)
+        form.addWidget(self.path_btn, 0, 2)
+
+        self.export_label = QtWidgets.QLabel(self.state.t("skraper_bridge_export_dir"))
+        self.export_input = QtWidgets.QLineEdit()
+        self.export_input.setPlaceholderText(self.state.t("skraper_bridge_export_dir"))
+        self.export_btn = QtWidgets.QPushButton(self.state.t("skraper_bridge_browse_dir"))
+        form.addWidget(self.export_label, 1, 0)
+        form.addWidget(self.export_input, 1, 1)
+        form.addWidget(self.export_btn, 1, 2)
+
+        footer_row = QtWidgets.QHBoxLayout()
+        self.summary_label = subtle_label("", 11)
+        self.summary_label.setWordWrap(True)
+        footer_row.addWidget(self.summary_label, 1)
+        self.open_site_btn = QtWidgets.QPushButton(self.state.t("skraper_bridge_open_site"))
+        footer_row.addWidget(self.open_site_btn)
+        root.addLayout(footer_row)
+
+        buttons = QtWidgets.QDialogButtonBox(self)
+        self.save_btn = buttons.addButton(self.state.t("skraper_bridge_save"), QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole)
+        self.cancel_btn = buttons.addButton(self.state.t("cancel"), QtWidgets.QDialogButtonBox.ButtonRole.RejectRole)
+        self.save_btn.setObjectName("Accent")
+        root.addWidget(buttons)
+
+        self.path_btn.clicked.connect(self._pick_path)
+        self.export_btn.clicked.connect(self._pick_export_dir)
+        self.path_input.textChanged.connect(self._refresh_summary)
+        self.export_input.textChanged.connect(self._refresh_summary)
+        self.open_site_btn.clicked.connect(self._open_provider_site)
+        self.save_btn.clicked.connect(self._save_and_accept)
+        self.cancel_btn.clicked.connect(self.reject)
+
+    def _apply_settings(self) -> None:
+        self.path_input.setText(str(self._settings.get("path", "") or ""))
+        self.export_input.setText(str(self._settings.get("export_dir", "") or ""))
+        self._refresh_summary()
+
+    def _refresh_summary(self) -> None:
+        draft = {
+            "path": self.path_input.text(),
+            "export_dir": self.export_input.text(),
+        }
+        summary = _skraper_summary_text(self.state, draft)
+        self.summary_label.setText(summary)
+        set_widget_tooltip(self.summary_label, summary)
+        set_widget_tooltip(self.path_input, self.state.t("tip_skraper_bridge_path"))
+        set_widget_tooltip(self.export_input, self.state.t("tip_skraper_bridge_export_dir"))
+
+    def _pick_path(self) -> None:
+        path = pick_file(self, self.state.t("skraper_bridge_pick_path"), "Executables (*.exe);;All files (*.*)")
+        if path:
+            self.path_input.setText(path)
+
+    def _pick_export_dir(self) -> None:
+        path = pick_dir(self, self.state.t("skraper_bridge_pick_export_dir"))
+        if path:
+            self.export_input.setText(path)
+
+    def _open_provider_site(self) -> None:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(SKRAPER_SITE))
+
+    def _save_and_accept(self) -> None:
+        self._settings = self.state.update_skraper_bridge_settings(
+            path=self.path_input.text(),
+            export_dir=self.export_input.text(),
+        )
+        self.accept()
+
+    @property
+    def settings(self) -> Dict[str, Any]:
+        return dict(self._settings)
+
+
 class LocalDatBulkEditorDialog(QtWidgets.QDialog):
     COL_USE = 0
     COL_FILE = 1
@@ -225,6 +361,10 @@ class LocalDatBulkEditorDialog(QtWidgets.QDialog):
         dat_row.addWidget(self.dat_combo, 1)
         root.addLayout(dat_row)
 
+        local_note = subtle_label(self.state.t("local_dat_local_only_note"), 11)
+        local_note.setWordWrap(True)
+        root.addWidget(local_note)
+
         self.table = QtWidgets.QTableWidget(0, 11)
         self.table.setHorizontalHeaderLabels(
             [
@@ -266,13 +406,10 @@ class LocalDatBulkEditorDialog(QtWidgets.QDialog):
         action_row.setSpacing(6)
         self.btn_autofill = QtWidgets.QPushButton(self.state.t("local_dat_autofill"))
         self.btn_suggest = QtWidgets.QPushButton(self.state.t("local_dat_suggest_loaded"))
-        self.btn_online = QtWidgets.QPushButton(self.state.t("local_dat_suggest_online"))
         self.btn_autofill.clicked.connect(self._autofill_all)
         self.btn_suggest.clicked.connect(self._suggest_for_selected_row)
-        self.btn_online.clicked.connect(self._online_hint_for_selected_row)
         action_row.addWidget(self.btn_autofill)
         action_row.addWidget(self.btn_suggest)
-        action_row.addWidget(self.btn_online)
         action_row.addStretch(1)
         root.addLayout(action_row)
 
@@ -410,51 +547,6 @@ class LocalDatBulkEditorDialog(QtWidgets.QDialog):
         self.table.item(row, self.COL_SYSTEM).setText(str(chosen.get("system_name", "") or ""))
         self.table.item(row, self.COL_REGION).setText(str(chosen.get("region", "") or ""))
 
-    def _online_hint_for_selected_row(self) -> None:
-        row = self._selected_table_row()
-        if row < 0:
-            return
-        game_item = self.table.item(row, self.COL_GAME)
-        system_item = self.table.item(row, self.COL_SYSTEM)
-        if game_item is None:
-            return
-        query = str(game_item.text() or "").strip()
-        system = str(system_item.text() or "").strip() if system_item else ""
-        if not query:
-            return
-
-        res = self.state.fetch_online_metadata_hints(query, system=system, limit=6)
-        if res.get("error"):
-            QtWidgets.QMessageBox.warning(self, self.state.t("warning"), str(res.get("error", "")))
-            return
-        items = list(res.get("items", []) or [])
-        if not items:
-            QtWidgets.QMessageBox.information(self, self.state.t("info"), self.state.t("local_dat_online_no_hints"))
-            return
-
-        labels: List[str] = []
-        for item in items:
-            title = str(item.get("title", "") or "").strip()
-            source = str(item.get("source", "web") or "web").strip()
-            labels.append(f"{title} ({source})")
-
-        selected_label, ok = QtWidgets.QInputDialog.getItem(
-            self,
-            self.state.t("local_dat_online_pick_title"),
-            self.state.t("local_dat_online_pick_prompt"),
-            labels,
-            0,
-            False,
-        )
-        if not ok:
-            return
-        idx = labels.index(selected_label) if selected_label in labels else -1
-        if idx < 0:
-            return
-        title = str(items[idx].get("title", "") or "").strip()
-        if title:
-            self.table.item(row, self.COL_GAME).setText(title)
-
     def _accept_payload(self) -> None:
         payload: List[Dict[str, Any]] = []
         for r in range(self.table.rowCount()):
@@ -555,20 +647,20 @@ class DashboardView(QtWidgets.QWidget):
         title_col.addWidget(self.title)
         title_col.addWidget(self.subtitle)
         header_row.addLayout(title_col, 1)
-
-        self.open_collection_btn = QtWidgets.QPushButton(self.state.t("dashboard_open_collection"))
-        self.open_collection_btn.setFixedHeight(34)
-        header_row.addWidget(self.open_collection_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
-        self.open_scan_btn = QtWidgets.QPushButton(self.state.t("dashboard_open_import_scan"))
-        self.open_scan_btn.setFixedHeight(34)
-        header_row.addWidget(self.open_scan_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
-        self.open_downloads_btn = QtWidgets.QPushButton(self.state.t("dashboard_open_downloads"))
-        self.open_downloads_btn.setFixedHeight(34)
-        header_row.addWidget(self.open_downloads_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
-        self.new_session_btn = QtWidgets.QPushButton(self.state.t("new_session"))
-        self.new_session_btn.setObjectName("Accent")
-        self.new_session_btn.setFixedHeight(34)
-        header_row.addWidget(self.new_session_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        session_actions = QtWidgets.QHBoxLayout()
+        session_actions.setContentsMargins(0, 0, 0, 0)
+        session_actions.setSpacing(6)
+        self.session_load_btn = QtWidgets.QPushButton(self.state.t("session_load"))
+        self.session_load_btn.setFixedHeight(34)
+        session_actions.addWidget(self.session_load_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        self.session_save_btn = QtWidgets.QPushButton(self.state.t("session_save"))
+        self.session_save_btn.setFixedHeight(34)
+        session_actions.addWidget(self.session_save_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        self.session_new_btn = QtWidgets.QPushButton(self.state.t("session_new"))
+        self.session_new_btn.setObjectName("Accent")
+        self.session_new_btn.setFixedHeight(34)
+        session_actions.addWidget(self.session_new_btn, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        header_row.addLayout(session_actions)
         root.addLayout(header_row)
 
         self.grid = QtWidgets.QGridLayout()
@@ -635,18 +727,20 @@ class DashboardView(QtWidgets.QWidget):
         self._render_dashboard_payload({})
 
     def _bind(self) -> None:
-        self.open_collection_btn.clicked.connect(lambda: self._navigate_to(1))
-        self.open_scan_btn.clicked.connect(lambda: self._navigate_to(2))
-        self.open_downloads_btn.clicked.connect(lambda: self._navigate_to(4))
-        self.new_session_btn.clicked.connect(self._handle_new_session)
+        self.session_load_btn.clicked.connect(self._load_saved_session)
+        self.session_save_btn.clicked.connect(self._save_session_snapshot)
+        self.session_new_btn.clicked.connect(self._start_new_session)
         self.force_sync_btn.clicked.connect(self._handle_force_sync_all)
         self.state.dashboard_data_ready.connect(self._update_dashboard_cards)
         self.state.status_changed.connect(self._refresh_runtime_overview)
+        self.state.status_changed.connect(lambda _status: self._update_session_actions(self.state.get_session_state()))
         self.state.results_changed.connect(self._refresh_runtime_overview)
         self.state.missing_changed.connect(self._refresh_runtime_overview)
+        self.state.session_state_changed.connect(self._update_session_actions)
         self.state.download_progress.connect(self._on_download_progress)
         self.state.jdownloader_handoff_progress.connect(self._on_jdownloader_handoff_progress)
         self.state.jdownloader_queue_finished.connect(self._on_jdownloader_queue_finished)
+        self._update_session_actions(self.state.get_session_state())
 
     def _build_card_panel(self) -> tuple[QtWidgets.QFrame, QtWidgets.QVBoxLayout]:
         frame = card_widget()
@@ -786,10 +880,9 @@ class DashboardView(QtWidgets.QWidget):
     def refresh_texts(self) -> None:
         self.title.setText(self.state.t("dashboard_home_title"))
         self.subtitle.setText(self.state.t("dashboard_home_subtitle"))
-        self.open_collection_btn.setText(self.state.t("dashboard_open_collection"))
-        self.open_scan_btn.setText(self.state.t("dashboard_open_import_scan"))
-        self.open_downloads_btn.setText(self.state.t("dashboard_open_downloads"))
-        self.new_session_btn.setText(self.state.t("new_session"))
+        self.session_load_btn.setText(self.state.t("session_load"))
+        self.session_save_btn.setText(self.state.t("session_save"))
+        self.session_new_btn.setText(self.state.t("session_new"))
         self.dat_title.setText(self.state.t("dashboard_quick_start_title"))
         self.force_sync_btn.setText(self.state.t("dashboard_refresh_overview"))
         self.bounty_title.setText(self.state.t("dashboard_next_actions_title"))
@@ -797,29 +890,45 @@ class DashboardView(QtWidgets.QWidget):
         self.wire_title.setText(self.state.t("dashboard_transfers_title"))
         self._refresh_tooltips()
         self._render_dashboard_payload(self._dashboard_payload)
+        self._update_session_actions(self.state.get_session_state())
 
     def _refresh_tooltips(self) -> None:
-        set_widget_tooltip(self.open_collection_btn, self.state.t("tip_dashboard_open_collection"))
-        set_widget_tooltip(self.open_scan_btn, self.state.t("tip_dashboard_open_import_scan"))
-        set_widget_tooltip(self.open_downloads_btn, self.state.t("tip_dashboard_open_downloads"))
-        set_widget_tooltip(self.new_session_btn, self.state.t("tip_dashboard_new_session"))
+        set_widget_tooltip(self.session_load_btn, self.state.t("tip_session_load"))
+        set_widget_tooltip(self.session_save_btn, self.state.t("tip_session_save"))
+        set_widget_tooltip(self.session_new_btn, self.state.t("tip_session_new"))
         set_widget_tooltip(self.force_sync_btn, self.state.t("tip_dashboard_force_sync"))
         set_widget_tooltip(self.wire_feed, self.state.t("tip_dashboard_wire_feed"))
 
-    def _handle_new_session(self) -> None:
-        emit_state_log(self.state, "[!] action:new_session:start")
-        res = QtWidgets.QMessageBox.question(
+    def _update_session_actions(self, payload: Dict[str, Any]) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        scanning = bool((self.state.status or {}).get("scanning", False))
+        self.session_load_btn.setEnabled(bool(data.get("has_saved", False)) and not scanning)
+        self.session_save_btn.setEnabled(bool(data.get("has_content", False)) and not scanning)
+        self.session_new_btn.setEnabled(not scanning)
+
+    def _save_session_snapshot(self) -> None:
+        self.state.save_session_snapshot()
+        emit_state_log(self.state, "[*] session:save")
+
+    def _load_saved_session(self) -> None:
+        res = self.state.restore_saved_session()
+        if res.get("error"):
+            QtWidgets.QMessageBox.information(self, self.state.t("info"), str(res.get("error", "")))
+            return
+        emit_state_log(self.state, "[*] session:restore")
+
+    def _start_new_session(self) -> None:
+        answer = QtWidgets.QMessageBox.question(
             self,
-            self.state.t("new_session"),
-            self.state.t("save_session_prompt"),
+            self.state.t("session_new"),
+            self.state.t("session_new_confirm"),
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
         )
-        if res == QtWidgets.QMessageBox.StandardButton.Yes:
-            name, ok = QtWidgets.QInputDialog.getText(self, self.state.t("save_collection"), self.state.t("collection_name"))
-            if ok and name:
-                self.state.save_collection(name)
+        if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
         self.state.new_session()
-        self.state.refresh_dashboard_intel()
+        emit_state_log(self.state, "[*] session:new")
 
     def _handle_force_sync_all(self) -> None:
         emit_state_log(self.state, "[!] action:dashboard:refresh_overview")
@@ -1379,6 +1488,15 @@ class LibraryView(QtWidgets.QWidget):
         self._refresh_missing_table()
 
     def _on_results_changed(self, _results: Dict[str, Any]) -> None:
+        scanning = bool((self.state.status or {}).get("scanning", False))
+        has_any = bool((self.state.results or {}).get("identified")) or bool((self.state.results or {}).get("unidentified"))
+        if not has_any and self._results_tab_visible and not scanning:
+            idx = self.manager_tabs.indexOf(self.scan_results_view)
+            if idx >= 0:
+                self.manager_tabs.removeTab(idx)
+            self._results_tab_visible = False
+            self._scan_results_tab_armed = False
+            self.manager_tabs.setCurrentIndex(0)
         self._preview()
 
     def _refresh_results_tables(self, active_only: bool = False) -> None:
@@ -1399,10 +1517,11 @@ class LibraryView(QtWidgets.QWidget):
         ])
 
     def _fill_table(self, table: QtWidgets.QTableWidget, rows: List[Dict[str, Any]], keys: List[str]) -> None:
-        table.setRowCount(0)
-        for row in rows:
-            idx = table.rowCount()
-            table.insertRow(idx)
+        sorting_enabled = table.isSortingEnabled()
+        table.setSortingEnabled(False)
+        table.setUpdatesEnabled(False)
+        table.setRowCount(len(rows))
+        for idx, row in enumerate(rows):
             for col, key in enumerate(keys):
                 val = str(row.get(key, ""))
                 if key in ("original_file", "path"):
@@ -1410,14 +1529,17 @@ class LibraryView(QtWidgets.QWidget):
                 item = QtWidgets.QTableWidgetItem(val)
                 item.setData(QtCore.Qt.ItemDataRole.UserRole, row)
                 table.setItem(idx, col, item)
+        table.setUpdatesEnabled(True)
+        table.setSortingEnabled(sorting_enabled)
 
     def _fill_unidentified(self, table: QtWidgets.QTableWidget, rows: List[Dict[str, Any]]) -> None:
         table.blockSignals(True)
-        table.setRowCount(0)
+        sorting_enabled = table.isSortingEnabled()
+        table.setSortingEnabled(False)
+        table.setUpdatesEnabled(False)
+        table.setRowCount(len(rows))
         self._selected_unidentified = []
-        for row in rows:
-            idx = table.rowCount()
-            table.insertRow(idx)
+        for idx, row in enumerate(rows):
             checkbox = QtWidgets.QTableWidgetItem()
             checkbox.setCheckState(QtCore.Qt.CheckState.Unchecked)
             checkbox.setData(QtCore.Qt.ItemDataRole.UserRole, row.get("id", ""))
@@ -1437,6 +1559,8 @@ class LibraryView(QtWidgets.QWidget):
             item_crc = QtWidgets.QTableWidgetItem(str(row.get("crc32", "")))
             item_crc.setData(QtCore.Qt.ItemDataRole.UserRole, row)
             table.setItem(idx, 4, item_crc)
+        table.setUpdatesEnabled(True)
+        table.setSortingEnabled(sorting_enabled)
         table.blockSignals(False)
 
     def _build_drawer(self) -> QtWidgets.QWidget:
@@ -1738,12 +1862,29 @@ class ImportScanView(QtWidgets.QWidget):
         self._active_dat_ids: set[str] = set()
         self._organize_queue: List[Tuple[str, str]] = []
         self._organize_action: str = "copy"
+        self._results_tab_visible = False
+        self._scan_results_tab_armed = False
+        self._scan_was_active = False
         self._build_ui()
         self._bind()
 
     def _build_ui(self) -> None:
-        layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(6)
+
+        session_row = QtWidgets.QHBoxLayout()
+        session_row.setContentsMargins(0, 0, 0, 0)
+        session_row.setSpacing(6)
+        self.session_label = subtle_label("", 11)
+        self.session_label.setWordWrap(True)
+        session_row.addWidget(self.session_label, 1)
+        root.addLayout(session_row)
+
+        self.manager_tabs = QtWidgets.QTabWidget()
+        self.manager_tab_setup = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(self.manager_tab_setup)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
         left = QtWidgets.QWidget()
@@ -1831,6 +1972,7 @@ class ImportScanView(QtWidgets.QWidget):
         strategy_box = QtWidgets.QGroupBox(self.state.t("import_strategy_group"))
         strat_layout = QtWidgets.QVBoxLayout(strategy_box)
         strat_layout.setContentsMargins(6, 4, 6, 4)
+        strat_layout.setSpacing(3)
         for sid, label in [
             ("1g1r", self.state.t("import_strategy_1g1r")),
             ("system", self.state.t("import_strategy_system")),
@@ -1840,6 +1982,7 @@ class ImportScanView(QtWidgets.QWidget):
             ("emulationstation", self.state.t("import_strategy_es")),
         ]:
             cb = QtWidgets.QCheckBox(label)
+            cb.setProperty("strategyOption", True)
             cb.setChecked(sid == "system")
             cb.setToolTip(self.state.t(f"tip_strategy_{sid}"))
             cb.toggled.connect(self._on_strategy_changed)
@@ -1850,7 +1993,14 @@ class ImportScanView(QtWidgets.QWidget):
         left_layout.addWidget(self.dest_block)
 
         left_layout.addStretch(1)
-        layout.addWidget(left, 1)
+        self.left_scroll = QtWidgets.QScrollArea()
+        self.left_scroll.setObjectName("SubtleScrollArea")
+        self.left_scroll.setWidgetResizable(True)
+        self.left_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self.left_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.left_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.left_scroll.setWidget(left)
+        layout.addWidget(self.left_scroll, 1)
 
         right = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right)
@@ -1878,6 +2028,9 @@ class ImportScanView(QtWidgets.QWidget):
         preview_layout.addWidget(self.start_btn)
         right_layout.addWidget(self.preview_box, 1)
         layout.addWidget(right, 1)
+        self.manager_tabs.addTab(self.manager_tab_setup, self.state.t("rom_manager_tab_setup"))
+        self.scan_results_view = LibraryView(self.state)
+        root.addWidget(self.manager_tabs, 1)
         self._refresh_tooltips()
 
     def _bind(self) -> None:
@@ -1892,7 +2045,10 @@ class ImportScanView(QtWidgets.QWidget):
         self.start_btn.clicked.connect(self._start_organize)
         self.state.dat_library_changed.connect(self._update_dat_library)
         self.state.status_changed.connect(self._update_active_dats)
+        self.state.status_changed.connect(self._on_status_changed_for_results_tab)
+        self.state.status_changed.connect(lambda _status: self._update_session_banner(self.state.get_session_state()))
         self.state.results_changed.connect(self._on_results_changed)
+        self.state.session_state_changed.connect(self._update_session_banner)
         self.state.organize_progress.connect(self._on_organize_progress)
         self.state.organize_finished.connect(self._on_organize_finished)
         self.state.organize_failed.connect(self._on_organize_failed)
@@ -1903,6 +2059,7 @@ class ImportScanView(QtWidgets.QWidget):
             cb.toggled.connect(self._preview)
         self.state.dat_library_list()
         self._update_active_dats(self.state.status)
+        self._update_session_banner(self.state.get_session_state())
 
     def export_ui_state(self) -> Dict[str, Any]:
         return {
@@ -1918,6 +2075,7 @@ class ImportScanView(QtWidgets.QWidget):
 
     def apply_ui_state(self, payload: Dict[str, Any]) -> None:
         if not isinstance(payload, dict):
+            self.manager_tabs.setCurrentIndex(0)
             return
         self.rom_folder.setText(normalize_win_path(str(payload.get("rom_folder", "") or "")))
         self.output_folder.setText(normalize_win_path(str(payload.get("output_folder", "") or "")))
@@ -1943,6 +2101,20 @@ class ImportScanView(QtWidgets.QWidget):
             cb.setChecked(sid in selected_strats if selected_strats else (sid == "system"))
             cb.blockSignals(False)
         self._apply_strategy_constraints()
+        self.manager_tabs.setCurrentIndex(0)
+
+    def _ensure_results_tab_visible(self, *, switch_to_tab: bool = False) -> None:
+        if not self._results_tab_visible:
+            self.manager_tabs.addTab(self.scan_results_view, self.state.t("rom_manager_tab_results"))
+            self._results_tab_visible = True
+        if switch_to_tab:
+            self.manager_tabs.setCurrentIndex(1)
+
+    def _on_status_changed_for_results_tab(self, status: Dict[str, Any]) -> None:
+        scanning = bool((status or {}).get("scanning", False))
+        if self._scan_was_active and not scanning and self._scan_results_tab_armed:
+            self._ensure_results_tab_visible(switch_to_tab=True)
+        self._scan_was_active = scanning
 
     def _browse_roms(self) -> None:
         emit_state_log(self.state, "[?] dialog:select_folder:roms")
@@ -1956,6 +2128,9 @@ class ImportScanView(QtWidgets.QWidget):
         self.blindmatch_field.setVisible(checked)
 
     def refresh_texts(self) -> None:
+        self.manager_tabs.setTabText(0, self.state.t("rom_manager_tab_setup"))
+        if self._results_tab_visible:
+            self.manager_tabs.setTabText(1, self.state.t("rom_manager_tab_results"))
         # Group titles
         self.dat_block.setTitle(self.state.t("import_block_dats_title"))
         self.source_block.setTitle(self.state.t("import_block_source_title"))
@@ -2004,7 +2179,9 @@ class ImportScanView(QtWidgets.QWidget):
         self.start_btn.setText(self.state.t("import_preview_start"))
         self._update_active_label()
         self._refresh_dat_list_view()
+        self.scan_results_view.refresh_texts()
         self._refresh_tooltips()
+        self._update_session_banner(self.state.get_session_state())
 
     def _refresh_tooltips(self) -> None:
         set_widget_tooltip(self.refresh_dats_btn, self.state.t("tip_refresh_dat_library"))
@@ -2024,6 +2201,48 @@ class ImportScanView(QtWidgets.QWidget):
         set_widget_tooltip(self.action_combo, self.state.t("tip_choose_action"))
         set_widget_tooltip(self.preview_table, self.state.t("tip_preview_table"))
         set_widget_tooltip(self.start_btn, self.state.t("tip_organize_now"))
+
+    def _update_session_banner(self, payload: Dict[str, Any]) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        self.session_label.setText(
+            self.state.t(
+                "session_summary",
+                identified=int(data.get("identified", 0) or 0),
+                unidentified=int(data.get("unidentified", 0) or 0),
+                state=self.state.t(
+                    "session_state_dirty"
+                    if bool(data.get("is_dirty", False))
+                    else ("session_state_saved" if bool(data.get("has_saved", False)) else "session_state_empty")
+                ),
+            )
+        )
+
+    def _save_session_snapshot(self) -> None:
+        self.state.save_session_snapshot()
+        emit_state_log(self.state, "[*] session:save")
+
+    def _load_saved_session(self) -> None:
+        res = self.state.restore_saved_session()
+        if res.get("error"):
+            QtWidgets.QMessageBox.information(self, self.state.t("info"), str(res.get("error", "")))
+            return
+        has_any = bool((self.state.results or {}).get("identified")) or bool((self.state.results or {}).get("unidentified"))
+        if has_any:
+            self._ensure_results_tab_visible(switch_to_tab=True)
+        emit_state_log(self.state, "[*] session:restore")
+
+    def _start_new_session(self) -> None:
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            self.state.t("session_new"),
+            self.state.t("session_new_confirm"),
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        self.state.new_session()
+        emit_state_log(self.state, "[*] session:new")
 
     def _update_active_label(self) -> None:
         if self._active_dat_ids:
@@ -2061,7 +2280,7 @@ class ImportScanView(QtWidgets.QWidget):
             return
         sorted_items = sorted(
             collapse_dat_rows(self._dat_library_items, self._active_dat_ids),
-            key=lambda row: str(row.get("system_name", "") or row.get("name", "")).lower(),
+            key=_dat_display_sort_key,
         )
         for row in sorted_items:
             dat_id = str(row.get("id", "") or "").strip()
@@ -2070,6 +2289,7 @@ class ImportScanView(QtWidgets.QWidget):
             parse_error = str(row.get("parse_error", "") or "").strip()
             is_valid = bool(row.get("is_valid", True)) and not parse_error
             is_active = dat_id in self._active_dat_ids
+            is_local_overrides = _is_local_overrides_dat(row)
             if not is_valid:
                 prefix = "[ERR]"
             else:
@@ -2081,9 +2301,17 @@ class ImportScanView(QtWidgets.QWidget):
             tip = str(row.get("filepath", "") or "")
             if parse_error:
                 tip = f"{tip}\n{parse_error}".strip()
+            if is_local_overrides:
+                tip = f"{tip}\n{self.state.t('dat_library_local_overrides_hint')}".strip()
             li.setToolTip(tip)
             if not is_valid:
                 li.setForeground(QtGui.QColor(COLORS["red"]))
+            elif is_local_overrides:
+                li.setForeground(QtGui.QColor(COLORS["blue"]))
+                li.setBackground(QtGui.QColor(COLORS["mantle"]))
+                font = li.font()
+                font.setBold(True)
+                li.setFont(font)
             elif is_active:
                 li.setForeground(QtGui.QColor(COLORS["green"]))
             else:
@@ -2102,10 +2330,10 @@ class ImportScanView(QtWidgets.QWidget):
             return
         if dat_id in self._active_dat_ids:
             emit_state_log(self.state, "[*] action:dat_toggle:disable:1")
-            self.state.remove_dat(dat_id)
+            self.state.queue_remove_dat(dat_id)
         else:
             emit_state_log(self.state, "[*] action:dat_toggle:enable:1")
-            self.state.dat_library_load(dat_id)
+            self.state.queue_dat_library_load(dat_id)
 
     def _activate_selected_dats(self) -> None:
         dat_ids: List[str] = []
@@ -2130,7 +2358,7 @@ class ImportScanView(QtWidgets.QWidget):
         emit_state_log(self.state, f"[*] action:dat_toggle:enable:{len(dat_ids)}")
         for dat_id in dat_ids:
             if dat_id not in self._active_dat_ids:
-                self.state.dat_library_load(dat_id)
+                self.state.queue_dat_library_load(dat_id)
         if invalid_count > 0:
             self.state.error_changed.emit(self.state.t("dat_library_invalid_selected_count", count=invalid_count))
 
@@ -2146,7 +2374,7 @@ class ImportScanView(QtWidgets.QWidget):
         emit_state_log(self.state, f"[*] action:dat_toggle:disable:{len(dat_ids)}")
         for dat_id in dat_ids:
             if dat_id in self._active_dat_ids:
-                self.state.remove_dat(dat_id)
+                self.state.queue_remove_dat(dat_id)
 
     def _dat_toggle_menu(self, pos: QtCore.QPoint) -> None:
         item = self.dat_list.itemAt(pos)
@@ -2199,12 +2427,14 @@ class ImportScanView(QtWidgets.QWidget):
         self._preview()
 
     def _on_results_changed(self, _results: Dict[str, Any]) -> None:
+        self._update_session_banner(self.state.get_session_state())
         self._preview()
 
     def _start_scan(self) -> None:
         folder = self.rom_folder.text().strip()
         if not folder:
             return
+        self._scan_results_tab_armed = True
         blindmatch = self.blindmatch_field.text().strip() if self.blindmatch_toggle.isChecked() else ""
         self.state.start_scan(folder, self.recursive.isChecked(), self.scan_archives.isChecked(), blindmatch)
 
@@ -2583,6 +2813,514 @@ class MyrientDirectoryBrowserDialog(QtWidgets.QDialog):
 
     def current_url(self) -> str:
         return self._normalize_url(self._current_url or self.url_field.text().strip())
+
+
+class CollectionView(QtWidgets.QWidget):
+    def __init__(self, state: AppState):
+        super().__init__()
+        self.state = state
+        self._search_query = ""
+        self._grouped_rows: Dict[str, List[Dict[str, Any]]] = {}
+        self._current_rows: List[Dict[str, Any]] = []
+        self._selected_system = ""
+        self._selected_row: Dict[str, Any] = {}
+        self._metadata_status_override = ""
+        self._scraper_settings = self.state.get_skraper_bridge_settings()
+        self._build_ui()
+        self._bind()
+        self._update_collection()
+
+    def _build_ui(self) -> None:
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+
+        header = QtWidgets.QVBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(4)
+        header_top = QtWidgets.QHBoxLayout()
+        header_top.setContentsMargins(0, 0, 0, 0)
+        header_top.setSpacing(6)
+        self.title_label = section_title(self.state.t("nav_library"))
+        header_top.addWidget(self.title_label)
+        header_top.addStretch(1)
+        self.scraper_summary = subtle_label("", 11)
+        self.scraper_summary.setWordWrap(True)
+        header_top.addWidget(self.scraper_summary, 1)
+        header.addLayout(header_top)
+
+        header_actions = QtWidgets.QHBoxLayout()
+        header_actions.setContentsMargins(0, 0, 0, 0)
+        header_actions.setSpacing(6)
+        self.download_scope = subtle_label("", 11)
+        self.download_scope.setWordWrap(True)
+        header_actions.addWidget(self.download_scope, 1)
+        self.scraper_config_btn = QtWidgets.QPushButton(self.state.t("skraper_bridge_setup"))
+        header_actions.addWidget(self.scraper_config_btn)
+        self.refresh_meta_btn = QtWidgets.QPushButton(self.state.t("collection_prepare_skraper_idle"))
+        self.refresh_meta_btn.setObjectName("Accent")
+        header_actions.addWidget(self.refresh_meta_btn)
+        header.addLayout(header_actions)
+        layout.addLayout(header)
+
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+
+        self.systems_list = QtWidgets.QListWidget()
+        self.systems_list.setMinimumWidth(220)
+        self.splitter.addWidget(self.systems_list)
+
+        center = QtWidgets.QWidget()
+        center_layout = QtWidgets.QVBoxLayout(center)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(6)
+        self.collection_summary = subtle_label("", 11)
+        center_layout.addWidget(self.collection_summary)
+        self.games_table = QtWidgets.QTableWidget(0, 4)
+        self.games_table.setHorizontalHeaderLabels(
+            [
+                self.state.t("col_game"),
+                self.state.t("col_rom_name"),
+                self.state.t("col_region"),
+                self.state.t("col_size"),
+            ]
+        )
+        self.games_table.verticalHeader().setVisible(False)
+        self.games_table.setSelectionBehavior(QtWidgets.QTableWidget.SelectionBehavior.SelectRows)
+        self.games_table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.games_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.games_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.games_table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.games_table.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        self.games_table.horizontalHeader().setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        center_layout.addWidget(self.games_table, 1)
+        self.splitter.addWidget(center)
+
+        detail = QtWidgets.QFrame()
+        detail.setObjectName("DrawerPanel")
+        detail.setMinimumWidth(320)
+        detail_layout = QtWidgets.QVBoxLayout(detail)
+        detail_layout.setContentsMargins(12, 12, 12, 12)
+        detail_layout.setSpacing(8)
+        hero_row = QtWidgets.QHBoxLayout()
+        hero_row.setContentsMargins(0, 0, 0, 0)
+        hero_row.setSpacing(10)
+        self.art_label = QtWidgets.QLabel("")
+        self.art_label.setFixedSize(220, 220)
+        self.art_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.art_label.setStyleSheet("border: 1px solid #2D2D2D; background: #111111;")
+        hero_row.addWidget(self.art_label, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+        hero_meta = QtWidgets.QVBoxLayout()
+        hero_meta.setContentsMargins(0, 0, 0, 0)
+        hero_meta.setSpacing(6)
+        self.meta_title = QtWidgets.QLabel(self.state.t("collection_no_selection"))
+        self.meta_title.setObjectName("H2")
+        self.meta_title.setWordWrap(True)
+        self.meta_title.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignLeft)
+        hero_meta.addWidget(self.meta_title)
+        self.meta_source = subtle_label("", 10)
+        self.meta_source.setWordWrap(True)
+        hero_meta.addWidget(self.meta_source)
+        self.meta_system = subtle_label("", 10)
+        self.meta_system.setWordWrap(True)
+        hero_meta.addWidget(self.meta_system)
+        self.meta_hint = subtle_label("", 10)
+        self.meta_hint.setWordWrap(True)
+        hero_meta.addWidget(self.meta_hint)
+        hero_meta.addStretch(1)
+        hero_row.addLayout(hero_meta, 1)
+        detail_layout.addLayout(hero_row)
+        self.meta_desc = QtWidgets.QPlainTextEdit()
+        self.meta_desc.setReadOnly(True)
+        self.meta_desc.setMinimumHeight(180)
+        detail_layout.addWidget(self.meta_desc, 1)
+        detail_btns = QtWidgets.QHBoxLayout()
+        self.open_source_btn = QtWidgets.QPushButton(self.state.t("collection_open_skraper"))
+        detail_btns.addWidget(self.open_source_btn)
+        detail_btns.addStretch(1)
+        detail_layout.addLayout(detail_btns)
+        self.splitter.addWidget(detail)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 3)
+        self.splitter.setStretchFactor(2, 2)
+        self.splitter.setSizes([240, 620, 360])
+        layout.addWidget(self.splitter, 1)
+        self._apply_scraper_settings_ui()
+        self._refresh_tooltips()
+
+    def _bind(self) -> None:
+        self.state.results_changed.connect(self._update_collection)
+        self.systems_list.itemSelectionChanged.connect(self._on_system_changed)
+        self.games_table.itemSelectionChanged.connect(self._on_game_changed)
+        self.games_table.itemSelectionChanged.connect(self._update_refresh_scope_ui)
+        self.systems_list.itemSelectionChanged.connect(self._update_refresh_scope_ui)
+        self.refresh_meta_btn.clicked.connect(self._refresh_selected_metadata)
+        self.open_source_btn.clicked.connect(self._open_source_link)
+        self.scraper_config_btn.clicked.connect(self._open_scraper_config)
+
+    def export_ui_state(self) -> Dict[str, Any]:
+        try:
+            splitter_sizes = list(self.splitter.sizes())
+        except Exception:
+            splitter_sizes = []
+        return {
+            "selected_system": self._selected_system,
+            "splitter_sizes": splitter_sizes,
+        }
+
+    def apply_ui_state(self, payload: Dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            return
+        self._selected_system = str(payload.get("selected_system", "") or "").strip()
+        sizes = payload.get("splitter_sizes", [])
+        if isinstance(sizes, list) and len(sizes) >= 3:
+            try:
+                self.splitter.setSizes([max(120, int(sizes[0])), max(200, int(sizes[1])), max(220, int(sizes[2]))])
+            except Exception:
+                pass
+        self._update_collection()
+
+    def refresh_texts(self) -> None:
+        self.title_label.setText(self.state.t("nav_library"))
+        self.scraper_config_btn.setText(self.state.t("skraper_bridge_setup"))
+        self._update_refresh_scope_ui()
+        self.open_source_btn.setText(self.state.t("collection_open_skraper"))
+        self.games_table.setHorizontalHeaderLabels(
+            [
+                self.state.t("col_game"),
+                self.state.t("col_rom_name"),
+                self.state.t("col_region"),
+                self.state.t("col_size"),
+            ]
+        )
+        self._apply_scraper_settings_ui()
+        self._refresh_tooltips()
+        self._update_collection()
+
+    def set_search_query(self, query: str) -> None:
+        self._search_query = str(query or "").strip().lower()
+        self._update_collection()
+
+    def _refresh_tooltips(self) -> None:
+        set_widget_tooltip(self.refresh_meta_btn, self.state.t("tip_collection_prepare_skraper"))
+        set_widget_tooltip(self.open_source_btn, self.state.t("tip_collection_open_skraper"))
+        set_widget_tooltip(self.scraper_config_btn, self.state.t("tip_skraper_bridge_setup"))
+
+    def _apply_scraper_settings_ui(self) -> None:
+        self.scraper_summary.setText(_skraper_summary_text(self.state, self._scraper_settings))
+        set_widget_tooltip(self.scraper_summary, self.scraper_summary.text())
+        self._update_refresh_scope_ui()
+
+    def _open_scraper_config(self) -> None:
+        dialog = SkraperBridgeDialog(self.state, self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self._scraper_settings = dialog.settings
+            self._apply_scraper_settings_ui()
+
+    def _selected_game_rows(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+        selection_model = self.games_table.selectionModel()
+        if selection_model is None:
+            return rows
+        for index in selection_model.selectedRows():
+            item = self.games_table.item(int(index.row()), 0)
+            if item is None:
+                continue
+            payload = item.data(QtCore.Qt.ItemDataRole.UserRole)
+            if not isinstance(payload, dict):
+                continue
+            key = (
+                str(payload.get("game_name", "") or payload.get("rom_name", "") or "").strip().lower(),
+                str(payload.get("system", "") or "").strip().lower(),
+                str(payload.get("crc32", "") or "").strip().upper(),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(dict(payload))
+        return rows
+
+    def _metadata_refresh_target(self) -> tuple[str, List[Dict[str, Any]], str]:
+        selected_games = self._selected_game_rows()
+        if self.systems_list.hasFocus() and self._selected_system:
+            rows = self._system_rows_for_display(self._selected_system)
+            if rows:
+                return "system", rows, self._selected_system
+        if len(selected_games) > 1:
+            return "games", selected_games, ""
+        if len(selected_games) == 1:
+            label = str(selected_games[0].get("game_name", "") or selected_games[0].get("rom_name", "") or "").strip()
+            return "game", selected_games, label
+        if self._selected_system:
+            rows = self._system_rows_for_display(self._selected_system)
+            if rows:
+                return "system", rows, self._selected_system
+        return "none", [], ""
+
+    def _update_refresh_scope_ui(self) -> None:
+        scope, rows, label = self._metadata_refresh_target()
+        if scope == "game":
+            self.refresh_meta_btn.setText(self.state.t("collection_prepare_skraper_game"))
+            default_scope = self.state.t("collection_prepare_scope_game", name=label or "-")
+        elif scope == "games":
+            self.refresh_meta_btn.setText(self.state.t("collection_prepare_skraper_games"))
+            default_scope = self.state.t("collection_prepare_scope_games", count=len(rows))
+        elif scope == "system":
+            self.refresh_meta_btn.setText(self.state.t("collection_prepare_skraper_system"))
+            default_scope = self.state.t("collection_prepare_scope_system", system=label or "-")
+        else:
+            self.refresh_meta_btn.setText(self.state.t("collection_prepare_skraper_idle"))
+            default_scope = self.state.t("collection_prepare_scope_none")
+        self.download_scope.setText(self._metadata_status_override or default_scope)
+        self.refresh_meta_btn.setEnabled(bool(rows))
+        set_widget_tooltip(self.download_scope, self.download_scope.text())
+
+    def _update_collection(self, *_args: Any) -> None:
+        if bool((self.state.status or {}).get("scanning", False)):
+            return
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for row in list((self.state.results or {}).get("identified", []) or []):
+            if not isinstance(row, dict):
+                continue
+            system = str(row.get("system", "") or self.state.t("none")).strip() or self.state.t("none")
+            grouped.setdefault(system, []).append(dict(row))
+        self._grouped_rows = grouped
+        self._rebuild_system_list()
+
+    def _system_rows_for_display(self, system: str) -> List[Dict[str, Any]]:
+        rows = list(self._grouped_rows.get(system, []) or [])
+        if not self._search_query:
+            return rows
+        filtered: List[Dict[str, Any]] = []
+        for row in rows:
+            hay = " ".join(
+                [
+                    str(row.get("game_name", "") or ""),
+                    str(row.get("rom_name", "") or ""),
+                    str(row.get("system", "") or ""),
+                    str(row.get("region", "") or ""),
+                ]
+            ).lower()
+            if self._search_query in hay:
+                filtered.append(row)
+        return filtered
+
+    def _rebuild_system_list(self) -> None:
+        systems = sorted(self._grouped_rows.keys(), key=lambda x: x.lower())
+        visible_systems: List[str] = []
+        for system in systems:
+            rows = self._system_rows_for_display(system)
+            if rows:
+                visible_systems.append(system)
+
+        self.systems_list.blockSignals(True)
+        self.systems_list.clear()
+        for system in visible_systems:
+            count = len(self._system_rows_for_display(system))
+            item = QtWidgets.QListWidgetItem(f"{system} ({count})")
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, system)
+            self.systems_list.addItem(item)
+        self.systems_list.blockSignals(False)
+
+        if visible_systems and self._selected_system not in visible_systems:
+            self._selected_system = visible_systems[0]
+        if visible_systems:
+            for idx in range(self.systems_list.count()):
+                item = self.systems_list.item(idx)
+                if str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "") == self._selected_system:
+                    self.systems_list.setCurrentRow(idx)
+                    break
+        else:
+            self._selected_system = ""
+            self._selected_row = {}
+            self._fill_games_table([])
+            self._render_metadata({})
+
+        total = sum(len(rows) for rows in self._grouped_rows.values())
+        self.collection_summary.setText(
+            self.state.t(
+                "collection_summary",
+                systems=len(visible_systems),
+                games=total,
+            )
+        )
+        if visible_systems:
+            self._fill_games_table(self._system_rows_for_display(self._selected_system))
+        self._update_refresh_scope_ui()
+
+    def _on_system_changed(self) -> None:
+        self._metadata_status_override = ""
+        item = self.systems_list.currentItem()
+        if item is None:
+            self._update_refresh_scope_ui()
+            return
+        self._selected_system = str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "").strip()
+        self._fill_games_table(self._system_rows_for_display(self._selected_system))
+
+    def _fill_games_table(self, rows: List[Dict[str, Any]]) -> None:
+        self._metadata_status_override = ""
+        self._current_rows = list(rows)
+        self.games_table.setUpdatesEnabled(False)
+        self.games_table.setRowCount(len(self._current_rows))
+        for idx, row in enumerate(self._current_rows):
+            values = [
+                str(row.get("game_name", "") or row.get("rom_name", "") or "-"),
+                str(row.get("rom_name", "") or "-"),
+                str(row.get("region", "") or "-"),
+                str(row.get("size_formatted", row.get("size", "")) or "-"),
+            ]
+            for col, value in enumerate(values):
+                item = QtWidgets.QTableWidgetItem(value)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, row)
+                self.games_table.setItem(idx, col, item)
+        self.games_table.setUpdatesEnabled(True)
+        if self.games_table.rowCount() > 0:
+            self.games_table.selectRow(0)
+        else:
+            self._selected_row = {}
+            self._render_metadata({})
+        self._update_refresh_scope_ui()
+
+    def _on_game_changed(self) -> None:
+        self._metadata_status_override = ""
+        items = self.games_table.selectedItems()
+        if not items:
+            self._render_metadata({})
+            self._update_refresh_scope_ui()
+            return
+        row = items[0].data(QtCore.Qt.ItemDataRole.UserRole)
+        if not isinstance(row, dict):
+            self._render_metadata({})
+            self._update_refresh_scope_ui()
+            return
+        self._selected_row = dict(row)
+        cached = self.state.get_cached_game_metadata(
+            game_name=str(row.get("game_name", "") or ""),
+            crc32=str(row.get("crc32", "") or ""),
+        )
+        self._render_metadata(cached or row)
+        self._update_refresh_scope_ui()
+
+    def _refresh_selected_metadata(self) -> None:
+        scope, rows, label = self._metadata_refresh_target()
+        if not rows:
+            return
+        if scope == "game":
+            target_label = label or "-"
+        elif scope == "system":
+            target_label = label or "-"
+        else:
+            target_label = str(len(rows))
+        self.state.log_message.emit(f"[*] skraper:prepare:start scope={scope} target={target_label} count={len(rows)}")
+        res = self.state.export_collection_for_skraper(rows)
+        if res.get("error"):
+            safe_error = str(res.get("error", "") or "").strip() or "unknown"
+            self._metadata_status_override = self.state.t("collection_prepare_scope_failed")
+            self.meta_hint.setText(self.state.t("collection_prepare_failed", error=safe_error))
+            self.state.log_message.emit(f"[!] skraper:prepare:error {safe_error}")
+        else:
+            count = int(res.get("count", len(rows)) or len(rows))
+            manifest_path = normalize_win_path(str(res.get("manifest_path", "") or ""))
+            self._metadata_status_override = self.state.t("collection_prepare_scope_done", count=count)
+            self.meta_hint.setText(self.state.t("collection_prepare_scope_done_hint"))
+            self.state.log_message.emit(f"[*] skraper:prepare:done count={count} manifest={manifest_path}")
+        self._update_refresh_scope_ui()
+
+    def _on_tool_progress(self, name: str, current: int, total: int, filename: str) -> None:
+        _ = (name, current, total, filename)
+        return
+
+    def _on_metadata_refresh_done(self, payload: Dict[str, Any]) -> None:
+        _ = payload
+        return
+
+    def _on_tool_failed(self, message: str) -> None:
+        _ = message
+        return
+
+    def _metadata_source_url(self, data: Dict[str, Any], row: Dict[str, Any]) -> str:
+        _ = row
+        return str(data.get("url", "") or "").strip()
+
+    def _render_metadata(self, data: Dict[str, Any]) -> None:
+        row = dict(self._selected_row or {})
+        safe = data if isinstance(data, dict) else {}
+        if not row and not safe:
+            self.meta_title.setText(self.state.t("collection_no_selection"))
+            self.meta_source.setText("")
+            self.meta_system.setText("")
+            self.meta_hint.setText(self.state.t("collection_prepare_scope_none"))
+            self.meta_desc.setPlainText("")
+            self.open_source_btn.setEnabled(True)
+            set_widget_tooltip(self.open_source_btn, self.state.t("tip_collection_open_skraper"))
+            self._render_artwork("", image_url="", image_cached_path="")
+            return
+        title = str(safe.get("title", "") or row.get("game_name", "") or self.state.t("collection_no_selection"))
+        self.meta_title.setText(title)
+        source = str(safe.get("source", "") or "")
+        self.meta_source.setText(
+            self.state.t("collection_metadata_source", source=source) if source else ""
+        )
+        system = str(safe.get("system", "") or row.get("system", "") or "")
+        self.meta_system.setText(
+            self.state.t("collection_metadata_system", system=system) if system else ""
+        )
+        image_cached_path = str(safe.get("image_cached_path", "") or "").strip()
+        if image_cached_path:
+            self.meta_hint.setText(self.state.t("collection_art_cached"))
+        else:
+            self.meta_hint.setText(self.state.t("collection_art_external"))
+        self.meta_desc.setPlainText(str(safe.get("description", "") or ""))
+        self.open_source_btn.setEnabled(True)
+        set_widget_tooltip(self.open_source_btn, self.state.t("tip_collection_open_skraper"))
+        self._render_artwork(
+            title,
+            image_url=str(safe.get("image_url", "") or "").strip(),
+            image_cached_path=image_cached_path,
+        )
+
+    def _render_artwork(self, title: str, image_url: str, image_cached_path: str = "") -> None:
+        self.art_label.setPixmap(QtGui.QPixmap())
+        safe_cached_path = str(image_cached_path or "").strip()
+        if safe_cached_path and Path(safe_cached_path).exists():
+            pixmap = QtGui.QPixmap(safe_cached_path)
+            if not pixmap.isNull():
+                self.art_label.setText("")
+                self.art_label.setPixmap(
+                    pixmap.scaled(
+                        self.art_label.size(),
+                        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        QtCore.Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                return
+        token = "".join(part[:1] for part in str(title or "R0MM").split()[:2]).upper() or "R0"
+        if image_url and not safe_cached_path:
+            token = f"{token}\nDL"
+        self.art_label.setText(token)
+
+    def _open_source_link(self) -> None:
+        settings = self.state.get_skraper_bridge_settings()
+        self._scraper_settings = dict(settings)
+        safe_path = str(settings.get("path", "") or "").strip()
+        if safe_path:
+            target = Path(safe_path)
+            if target.exists():
+                self.state.log_message.emit(f"[*] skraper:open:path {normalize_win_path(str(target))}")
+                try:
+                    if hasattr(os, "startfile"):
+                        os.startfile(str(target))  # type: ignore[attr-defined]
+                        return
+                except Exception as exc:
+                    self.state.log_message.emit(f"[!] skraper:open:path_failed {exc}")
+                if QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(target))):
+                    return
+                self.state.log_message.emit(f"[!] skraper:open:path_failed {normalize_win_path(str(target))}")
+            else:
+                self.state.log_message.emit(f"[!] skraper:open:path_missing {normalize_win_path(str(target))}")
+        self.state.log_message.emit(f"[*] skraper:open:site {SKRAPER_SITE}")
+        if not QtGui.QDesktopServices.openUrl(QtCore.QUrl(SKRAPER_SITE)):
+            self.state.log_message.emit(f"[!] skraper:open:site_failed {SKRAPER_SITE}")
 
 
 class ToolsView(QtWidgets.QWidget):

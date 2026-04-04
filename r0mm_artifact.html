@@ -1,0 +1,1940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R0MM - ROM Manager</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--bg:#1E1E1E;--bg-dim:#151515;--bg-deep:#090909;
+--surface0:#2D2D2D;--surface1:#3C3C3C;--surface2:#4A4A4A;
+--text:#E0E0E0;--subtext1:#CCCCCC;--subtext0:#A0A0A0;
+--overlay2:#808080;--overlay1:#606060;--overlay0:#4D4D4D;
+--primary:#39FF14;--secondary:#FF00FF;
+--success:#39FF14;--warning:#F9E2AF;--error:#FF00FF;--info:#89B4FA;
+--peach:#FAB387;--pink:#F5C2E7;--sky:#89DCEB;--lavender:#B4BEFE;
+--flamingo:#F2CDCD;--rosewater:#F5E0DC;--maroon:#EBA0AC;--sapphire:#74C7EC;
+--font-ui:"Segoe UI","Roboto",sans-serif;--font-mono:"JetBrains Mono","Fira Code","Consolas",monospace;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:14px}
+a{color:var(--primary);text-decoration:none}
+input,select,textarea,button{font-family:inherit;font-size:inherit}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:#1A1A1A}
+::-webkit-scrollbar-thumb{background:rgba(57,255,20,.5);border-radius:0}
+::-webkit-scrollbar-thumb:hover{background:var(--primary)}
+
+/* Layout */
+#app{display:flex;height:100vh;flex-direction:column}
+#main-row{display:flex;flex:1;overflow:hidden}
+#sidebar{width:220px;min-width:220px;background:var(--bg-dim);border-right:1px solid var(--surface0);display:flex;flex-direction:column;padding:0}
+#sidebar .logo{padding:20px 16px 16px;font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--primary);letter-spacing:2px;border-bottom:1px solid var(--surface0)}
+#sidebar .logo span{color:var(--secondary)}
+.nav-items{flex:1;padding:8px 0}
+.nav-item{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;color:var(--subtext0);border-left:3px solid transparent;transition:all .15s}
+.nav-item:hover{background:rgba(57,255,20,.05);color:var(--text)}
+.nav-item.active{color:var(--primary);border-left-color:var(--primary);background:rgba(57,255,20,.08);font-weight:600}
+.nav-item svg{width:18px;height:18px;fill:currentColor;flex-shrink:0}
+.nav-footer{padding:12px 16px;border-top:1px solid var(--surface0);font-size:11px;color:var(--overlay1)}
+.nav-footer select{background:var(--bg-deep);color:var(--primary);border:1px solid var(--surface0);padding:4px 8px;font-family:var(--font-mono);font-size:11px;width:100%;margin-top:6px;cursor:pointer}
+
+#content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.view{display:none;flex:1;overflow-y:auto;padding:24px}
+.view.active{display:flex;flex-direction:column}
+
+/* Nerve Center */
+#nerve-center{height:80px;min-height:80px;background:var(--bg-deep);border-top:1px solid var(--surface0);display:flex;align-items:stretch;font-family:var(--font-mono);font-size:11px}
+.nc-section{padding:8px 14px;display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--surface0)}
+.nc-section:last-child{border-right:none}
+.nc-hw{width:200px}
+.nc-ops{width:300px}
+.nc-console{flex:1;overflow:hidden}
+.nc-label{color:var(--overlay1);font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.nc-value{color:var(--primary);font-size:12px}
+.nc-muted{color:var(--overlay2)}
+#ghost-typer{color:var(--primary);white-space:nowrap;overflow:hidden}
+#ghost-typer .cursor{animation:blink .7s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+.progress-bar{height:4px;background:var(--surface0);border-radius:0;overflow:hidden;margin:4px 0}
+.progress-bar .fill{height:100%;background:var(--primary);transition:width .3s}
+
+/* Buttons */
+.btn{padding:8px 16px;border:1px solid var(--primary);background:transparent;color:var(--primary);font-weight:600;cursor:pointer;font-family:var(--font-mono);font-size:12px;text-transform:uppercase;letter-spacing:.5px;transition:all .15s}
+.btn:hover{background:rgba(57,255,20,.12)}
+.btn:active,.btn.filled{background:var(--primary);color:var(--bg)}
+.btn.secondary{border-color:var(--secondary);color:var(--secondary)}
+.btn.secondary:hover{background:rgba(255,0,255,.12)}
+.btn.small{padding:4px 10px;font-size:11px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-group{display:flex;gap:8px;flex-wrap:wrap}
+
+/* Cards */
+.card{background:#1A1A1A;border:1px solid var(--surface0);padding:16px;margin-bottom:12px}
+.card-title{font-family:var(--font-mono);font-size:11px;color:var(--primary);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;font-weight:700}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+
+/* Stat cards */
+.stat-card{background:var(--surface0);padding:14px;display:flex;flex-direction:column;gap:6px}
+.stat-card .label{font-size:10px;color:var(--overlay2);text-transform:uppercase;letter-spacing:1px}
+.stat-card .value{font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--primary)}
+.stat-card .value.secondary{color:var(--secondary)}
+.stat-card .value.warning{color:var(--warning)}
+
+/* Tables */
+.table-wrap{flex:1;overflow:auto;border:1px solid var(--surface0);background:var(--bg-dim)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{position:sticky;top:0;z-index:1}
+th{background:var(--surface0);color:var(--subtext0);text-align:left;padding:8px 12px;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:1px solid var(--surface1)}
+th:hover{color:var(--primary)}
+th .sort-arrow{margin-left:4px;font-size:9px}
+td{padding:6px 12px;border-bottom:1px solid #222;color:var(--subtext1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px}
+tr:hover td{background:rgba(57,255,20,.04)}
+tr.selected td{background:rgba(57,255,20,.1);color:var(--primary)}
+.mono{font-family:var(--font-mono);font-size:12px;color:var(--primary)}
+.badge{display:inline-block;padding:2px 8px;font-size:10px;font-weight:600;font-family:var(--font-mono);letter-spacing:.5px}
+.badge-ok{background:var(--primary);color:var(--bg)}
+.badge-err{background:var(--secondary);color:var(--bg)}
+.badge-muted{background:var(--surface0);color:var(--subtext0)}
+.badge-region{border-radius:0;padding:2px 6px;font-size:10px}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:1px solid var(--surface0);margin-bottom:16px}
+.tab{padding:10px 20px;cursor:pointer;color:var(--subtext0);border-bottom:2px solid transparent;font-size:13px;font-weight:600;transition:all .15s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+.tab-content{display:none}
+.tab-content.active{display:flex;flex-direction:column;flex:1}
+
+/* Forms */
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:11px;color:var(--subtext0);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.form-input{width:100%;padding:8px 12px;background:var(--bg-dim);border:1px solid var(--surface0);color:var(--text);font-family:var(--font-mono);font-size:13px}
+.form-input:focus{outline:none;border-color:var(--primary)}
+.form-input::placeholder{color:var(--overlay0)}
+textarea.form-input{min-height:120px;resize:vertical}
+.checkbox-row{display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer}
+.checkbox-row input[type=checkbox]{accent-color:var(--primary);width:16px;height:16px;cursor:pointer}
+.checkbox-row label{cursor:pointer;color:var(--subtext1)}
+
+/* DAT list */
+.dat-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--surface0);margin-bottom:4px;background:var(--bg-dim)}
+.dat-item .dat-name{flex:1;font-size:13px;color:var(--text)}
+.dat-item .dat-count{font-family:var(--font-mono);font-size:11px;color:var(--primary)}
+.dat-item .dat-toggle{cursor:pointer}
+
+/* Empty state */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:var(--overlay1);text-align:center;gap:12px}
+.empty-state .icon{font-size:48px;opacity:.5}
+.empty-state h3{color:var(--subtext0);font-size:16px}
+.empty-state p{font-size:13px;max-width:400px}
+
+/* Section titles */
+.section-title{font-family:var(--font-mono);font-size:11px;color:var(--primary);text-transform:uppercase;letter-spacing:2px;margin:20px 0 12px;font-weight:700}
+.section-title:first-child{margin-top:0}
+.headline{font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px}
+.subtle{font-size:12px;color:var(--overlay2)}
+
+/* Region badges */
+.region-usa{color:var(--secondary);background:#1e3a5f}
+.region-europe{color:var(--primary);background:#3b1f5e}
+.region-japan{color:var(--error);background:#5f1e1e}
+.region-world{color:var(--success);background:#1e5f2e}
+.region-brazil{color:var(--warning);background:#3d5f1e}
+.region-korea{color:var(--peach);background:#5f3b1e}
+.region-china{color:var(--flamingo);background:#5f4e1e}
+.region-default{color:var(--overlay1);background:#334155}
+
+/* Strategy items */
+.strategy-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--surface0);margin-bottom:4px;background:var(--bg-dim);cursor:pointer}
+.strategy-item:hover{border-color:var(--primary)}
+.strategy-item.selected{border-color:var(--primary);background:rgba(57,255,20,.06)}
+.strategy-item .name{font-weight:600;color:var(--text)}
+.strategy-item .desc{font-size:12px;color:var(--overlay2)}
+
+/* Dashboard specific */
+.quick-start-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.quick-action{background:var(--surface0);padding:16px;text-align:center;cursor:pointer;border:1px solid transparent;transition:all .15s}
+.quick-action:hover{border-color:var(--primary);background:rgba(57,255,20,.06)}
+.quick-action .qa-icon{font-size:28px;margin-bottom:8px}
+.quick-action .qa-label{font-weight:600;color:var(--text);font-size:13px}
+.quick-action .qa-count{font-family:var(--font-mono);font-size:18px;color:var(--primary);margin-top:4px}
+
+/* Bounty / storage bars */
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.bar-row .bar-label{width:140px;font-size:12px;color:var(--subtext1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-row .bar-track{flex:1;height:6px;background:var(--surface0)}
+.bar-row .bar-fill{height:100%;background:var(--primary);transition:width .3s}
+.bar-row .bar-pct{width:50px;text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--primary)}
+
+/* Downloads */
+.url-list{width:100%;min-height:200px;background:var(--bg-deep);border:1px solid var(--surface0);color:var(--primary);font-family:var(--font-mono);font-size:12px;padding:12px;resize:vertical}
+.download-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--surface0)}
+.download-item .dl-name{flex:1;color:var(--text);font-size:12px}
+.download-item .dl-status{font-family:var(--font-mono);font-size:10px;padding:2px 8px}
+
+/* Responsive */
+@media(max-width:900px){
+#sidebar{width:60px;min-width:60px}
+#sidebar .logo{font-size:14px;padding:12px 8px;text-align:center}
+.nav-item span{display:none}
+.nav-item{justify-content:center;padding:12px 8px}
+.nav-footer{display:none}
+.quick-start-grid{grid-template-columns:1fr}
+}
+
+/* File drop zone */
+.drop-zone{border:2px dashed var(--surface1);padding:40px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:16px}
+.drop-zone:hover,.drop-zone.dragover{border-color:var(--primary);background:rgba(57,255,20,.04)}
+.drop-zone p{color:var(--overlay2);margin-top:8px}
+
+/* Animations */
+@keyframes scanline{0%{transform:translateY(-100%)}100%{transform:translateY(100vh)}}
+.view-header{margin-bottom:20px}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="main-row">
+<!-- Sidebar -->
+<div id="sidebar">
+<div class="logo">R<span>0</span>MM</div>
+<div class="nav-items">
+<div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
+<svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+<span data-i18n="nav_dashboard">Dashboard</span>
+</div>
+<div class="nav-item" data-view="collection" onclick="switchView('collection')">
+<svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
+<span data-i18n="nav_library">Collection</span>
+</div>
+<div class="nav-item" data-view="rommanager" onclick="switchView('rommanager')">
+<svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+<span data-i18n="nav_import_scan">Rom Manager</span>
+</div>
+<div class="nav-item" data-view="tools" onclick="switchView('tools')">
+<svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+<span data-i18n="nav_tools">Tools</span>
+</div>
+<div class="nav-item" data-view="downloads" onclick="switchView('downloads')">
+<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+<span data-i18n="nav_downloads">Downloads</span>
+</div>
+</div>
+<div class="nav-footer">
+<span data-i18n="nav_language">Language</span>
+<select id="lang-select" onchange="setLocale(this.value)">
+<option value="en">English</option>
+<option value="pt-BR">Portugues (BR)</option>
+</select>
+</div>
+</div>
+
+<!-- Content Area -->
+<div id="content">
+<!-- ═══════════ DASHBOARD VIEW ═══════════ -->
+<div id="view-dashboard" class="view active">
+<div class="view-header">
+<div class="section-title" data-i18n="dashboard_command_center_title">COMMAND CENTER</div>
+</div>
+
+<!-- Session Controls -->
+<div class="btn-group" style="margin-bottom:20px">
+<button class="btn small" onclick="loadSessionFromFile()" data-i18n="session_load">Load Snapshot</button>
+<button class="btn small" onclick="saveSession()" data-i18n="session_save">Save Session</button>
+<button class="btn small secondary" onclick="newSession()" data-i18n="session_new">New Session</button>
+</div>
+
+<!-- Stat Cards -->
+<div class="card-grid" style="margin-bottom:20px">
+<div class="stat-card">
+<div class="label" data-i18n="dashboard_dats_loaded">DATs Loaded</div>
+<div class="value" id="stat-dats">0</div>
+</div>
+<div class="stat-card">
+<div class="label" data-i18n="tab_identified_files">Identified</div>
+<div class="value" id="stat-identified">0</div>
+</div>
+<div class="stat-card">
+<div class="label" data-i18n="tab_unidentified_files">Unidentified</div>
+<div class="value secondary" id="stat-unidentified">0</div>
+</div>
+<div class="stat-card">
+<div class="label" data-i18n="tab_missing_roms">Missing</div>
+<div class="value warning" id="stat-missing">0</div>
+</div>
+</div>
+
+<!-- Command Center Cards -->
+<div class="card-grid">
+<!-- DAT Syndicate -->
+<div class="card">
+<div class="card-title" data-i18n="dashboard_dat_syndicate_title">DAT SYNDICATE</div>
+<div id="dat-syndicate-body">
+<div class="subtle" data-i18n="empty_no_dats_heading">No DAT files loaded</div>
+</div>
+</div>
+
+<!-- Bounty Board -->
+<div class="card">
+<div class="card-title" data-i18n="dashboard_bounty_board_title">BOUNTY BOARD</div>
+<div id="bounty-board-body">
+<div class="subtle" data-i18n="dashboard_no_bounties">Scan ROMs to see missing bounties</div>
+</div>
+</div>
+
+<!-- Storage Heatmap -->
+<div class="card">
+<div class="card-title" data-i18n="dashboard_storage_heatmap_title">STORAGE HEATMAP</div>
+<div id="storage-heatmap-body">
+<div class="subtle" data-i18n="dashboard_no_storage">No storage data yet</div>
+</div>
+</div>
+
+<!-- The Wire -->
+<div class="card">
+<div class="card-title" data-i18n="dashboard_wire_title">THE WIRE</div>
+<div id="wire-body" style="font-family:var(--font-mono);font-size:12px;color:var(--primary)">
+<div id="wire-ghost-typer"></div>
+</div>
+</div>
+</div>
+
+<!-- Quick Start -->
+<div class="section-title" data-i18n="dashboard_quick_start_title">QUICK START</div>
+<div class="quick-start-grid">
+<div class="quick-action" onclick="switchView('collection')">
+<div class="qa-icon">&#x1F4C1;</div>
+<div class="qa-label" data-i18n="nav_library">Collection</div>
+<div class="qa-count" id="qa-collection-count">0 ROMs</div>
+</div>
+<div class="quick-action" onclick="switchView('rommanager')">
+<div class="qa-icon">&#x1F50D;</div>
+<div class="qa-label" data-i18n="nav_import_scan">Import & Scan</div>
+<div class="qa-count" id="qa-scan-status" data-i18n="monitor_idle">Idle</div>
+</div>
+<div class="quick-action" onclick="switchView('downloads')">
+<div class="qa-icon">&#x2B07;</div>
+<div class="qa-label" data-i18n="nav_downloads">Downloads</div>
+<div class="qa-count" id="qa-downloads-count">0 queued</div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ COLLECTION VIEW ═══════════ -->
+<div id="view-collection" class="view">
+<div class="view-header">
+<div class="headline" data-i18n="nav_library">Collection</div>
+<div class="subtle" id="collection-subtitle"></div>
+</div>
+
+<div class="tabs" id="collection-tabs">
+<div class="tab active" data-tab="identified" onclick="switchCollectionTab('identified')" data-i18n="tab_identified_files">Identified Files</div>
+<div class="tab" data-tab="unidentified" onclick="switchCollectionTab('unidentified')" data-i18n="tab_unidentified_files">Unidentified Files</div>
+<div class="tab" data-tab="missing" onclick="switchCollectionTab('missing')" data-i18n="tab_missing_roms">Missing ROMs</div>
+</div>
+
+<!-- Identified Tab -->
+<div class="tab-content active" id="tab-identified">
+<div id="identified-empty" class="empty-state">
+<div class="icon">&#x1F3AE;</div>
+<h3 data-i18n="empty_no_scan_heading">No ROMs scanned yet</h3>
+<p data-i18n="empty_no_scan_subtext">Import DAT files and scan a ROM folder to identify your collection</p>
+<button class="btn" onclick="switchView('rommanager')" data-i18n="empty_no_scan_cta">Scan ROMs</button>
+</div>
+<div id="identified-table-wrap" class="table-wrap" style="display:none">
+<table id="identified-table">
+<thead><tr>
+<th onclick="sortTable('identified','original_file')" data-i18n="col_original">Original<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','rom_name')" data-i18n="col_rom_name">ROM Name<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','game_name')" data-i18n="col_game">Game<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','system')" data-i18n="col_system">System<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','region')" data-i18n="col_region">Region<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','size')" data-i18n="col_size">Size<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','crc32')" data-i18n="col_crc32">CRC32<span class="sort-arrow"></span></th>
+<th onclick="sortTable('identified','status')" data-i18n="col_status">Status<span class="sort-arrow"></span></th>
+</tr></thead>
+<tbody id="identified-tbody"></tbody>
+</table>
+</div>
+</div>
+
+<!-- Unidentified Tab -->
+<div class="tab-content" id="tab-unidentified">
+<div id="unidentified-empty" class="empty-state">
+<div class="icon">&#x2753;</div>
+<h3 data-i18n="empty_no_results_heading">No unidentified files</h3>
+</div>
+<div id="unidentified-table-wrap" class="table-wrap" style="display:none">
+<table id="unidentified-table">
+<thead><tr>
+<th onclick="sortTable('unidentified','filename')" data-i18n="col_filename">Filename<span class="sort-arrow"></span></th>
+<th onclick="sortTable('unidentified','path')" data-i18n="col_path">Path<span class="sort-arrow"></span></th>
+<th onclick="sortTable('unidentified','size')" data-i18n="col_size">Size<span class="sort-arrow"></span></th>
+<th onclick="sortTable('unidentified','crc32')" data-i18n="col_crc32">CRC32<span class="sort-arrow"></span></th>
+</tr></thead>
+<tbody id="unidentified-tbody"></tbody>
+</table>
+</div>
+</div>
+
+<!-- Missing Tab -->
+<div class="tab-content" id="tab-missing">
+<div id="missing-empty" class="empty-state">
+<div class="icon">&#x1F50E;</div>
+<h3>No missing ROM data</h3>
+<p>Load DATs and scan ROMs to calculate missing entries</p>
+</div>
+<div id="missing-table-wrap" class="table-wrap" style="display:none">
+<table id="missing-table">
+<thead><tr>
+<th onclick="sortTable('missing','rom_name')" data-i18n="col_rom_name">ROM Name<span class="sort-arrow"></span></th>
+<th onclick="sortTable('missing','game_name')" data-i18n="col_game">Game<span class="sort-arrow"></span></th>
+<th onclick="sortTable('missing','system')" data-i18n="col_system">System<span class="sort-arrow"></span></th>
+<th onclick="sortTable('missing','region')" data-i18n="col_region">Region<span class="sort-arrow"></span></th>
+<th onclick="sortTable('missing','size')" data-i18n="col_size">Size<span class="sort-arrow"></span></th>
+</tr></thead>
+<tbody id="missing-tbody"></tbody>
+</table>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ ROM MANAGER VIEW ═══════════ -->
+<div id="view-rommanager" class="view">
+<div class="view-header">
+<div class="headline" data-i18n="import_scan_title">Rom Manager</div>
+</div>
+
+<!-- DAT Selection -->
+<div class="section-title" data-i18n="import_block_dats_title">DATs for Next Scan</div>
+<div class="drop-zone" id="dat-drop-zone" onclick="document.getElementById('dat-file-input').click()">
+<div style="font-size:24px">&#x1F4C4;</div>
+<p data-i18n="import_dat_drop">Drop DAT files here or click to browse</p>
+<input type="file" id="dat-file-input" accept=".dat,.xml,.zip,.gz" multiple style="display:none" onchange="handleDATFiles(this.files)">
+</div>
+<div id="dat-list"></div>
+<div style="margin-bottom:20px">
+<span class="subtle" id="dat-active-count" data-i18n="import_dat_library_active_count">Active DATs: 0</span>
+</div>
+
+<!-- Source Directory (ROM files) -->
+<div class="section-title" data-i18n="import_block_source_title">Source Directory</div>
+<div class="drop-zone" id="rom-drop-zone" onclick="document.getElementById('rom-file-input').click()">
+<div style="font-size:24px">&#x1F4C2;</div>
+<p data-i18n="import_rom_drop">Drop ROM files here or click to browse</p>
+<input type="file" id="rom-file-input" webkitdirectory multiple style="display:none" onchange="handleROMFiles(this.files)">
+</div>
+
+<!-- Scan Options -->
+<div style="margin-bottom:16px">
+<div class="checkbox-row"><input type="checkbox" id="opt-archives" checked><label for="opt-archives" data-i18n="import_opt_archives">Scan inside archives (ZIP)</label></div>
+<div class="checkbox-row"><input type="checkbox" id="opt-blindmatch"><label for="opt-blindmatch" data-i18n="import_opt_blindmatch">BlindMatch mode</label></div>
+</div>
+<div id="blindmatch-system-row" style="display:none;margin-bottom:16px">
+<div class="form-group">
+<label class="form-label">BlindMatch System Name</label>
+<input class="form-input" id="blindmatch-system" placeholder="e.g. Super Nintendo">
+</div>
+</div>
+
+<!-- Scan Button -->
+<div class="btn-group" style="margin-bottom:20px">
+<button class="btn filled" id="btn-scan" onclick="startScan()" data-i18n="scan_start">SCAN</button>
+<button class="btn secondary" id="btn-abort-scan" onclick="abortScan()" style="display:none" data-i18n="scan_abort">ABORT</button>
+</div>
+
+<!-- Scan Progress -->
+<div id="scan-progress-section" style="display:none;margin-bottom:20px">
+<div class="card">
+<div class="card-title" id="scan-phase" data-i18n="monitor_scanning">Scanning</div>
+<div class="progress-bar"><div class="fill" id="scan-progress-fill" style="width:0%"></div></div>
+<div class="subtle" id="scan-progress-text">0 / 0</div>
+</div>
+</div>
+
+<!-- Organization -->
+<div class="section-title" data-i18n="import_block_dest_title">Destination Rules</div>
+<div id="strategy-list"></div>
+
+<div class="form-group" style="margin-top:12px">
+<label class="form-label" data-i18n="import_action_type">Action</label>
+<select class="form-input" id="organize-action" style="width:200px">
+<option value="copy">Copy</option>
+<option value="move">Move</option>
+</select>
+</div>
+
+<div class="btn-group" style="margin-top:12px">
+<button class="btn" onclick="previewOrganize()" data-i18n="import_preview">Preview</button>
+<button class="btn filled" onclick="executeOrganize()" data-i18n="import_organize">Organize</button>
+</div>
+
+<!-- Organization Preview -->
+<div id="organize-preview" style="display:none;margin-top:16px">
+<div class="card">
+<div class="card-title">Organization Preview</div>
+<div id="organize-preview-body"></div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ TOOLS VIEW ═══════════ -->
+<div id="view-tools" class="view">
+<div class="view-header">
+<div class="headline" data-i18n="nav_tools">Tools</div>
+</div>
+
+<div class="tabs" id="tools-tabs">
+<div class="tab active" data-tab="tools-dats" onclick="switchToolsTab('tools-dats')" data-i18n="tools_tab_dats">DAT Operations</div>
+<div class="tab" data-tab="tools-surgery" onclick="switchToolsTab('tools-surgery')" data-i18n="tools_tab_surgery">ROM Surgery</div>
+<div class="tab" data-tab="tools-collections" onclick="switchToolsTab('tools-collections')" data-i18n="tools_tab_collections">Collections & Reports</div>
+</div>
+
+<!-- DAT Operations Tab -->
+<div class="tab-content active" id="tab-tools-dats">
+<div class="card">
+<div class="card-title" data-i18n="tools_advanced_dat">Advanced DAT Tools</div>
+<div class="section-title">DAT Diff</div>
+<p class="subtle" style="margin-bottom:12px">Compare two DAT files to find differences</p>
+<div style="display:flex;gap:12px;margin-bottom:12px">
+<div class="form-group" style="flex:1">
+<label class="form-label">DAT A</label>
+<select class="form-input" id="diff-dat-a"><option value="">Select DAT...</option></select>
+</div>
+<div class="form-group" style="flex:1">
+<label class="form-label">DAT B</label>
+<select class="form-input" id="diff-dat-b"><option value="">Select DAT...</option></select>
+</div>
+</div>
+<button class="btn small" onclick="diffDATs()">Compare</button>
+<div id="diff-results" style="margin-top:12px"></div>
+</div>
+
+<div class="card">
+<div class="card-title">DAT Merge</div>
+<p class="subtle" style="margin-bottom:12px">Merge multiple DATs into one</p>
+<div id="merge-dat-list"></div>
+<button class="btn small" onclick="mergeDATs()">Merge Selected</button>
+</div>
+</div>
+
+<!-- ROM Surgery Tab -->
+<div class="tab-content" id="tab-tools-surgery">
+<div class="card">
+<div class="card-title">Find Duplicates</div>
+<p class="subtle" style="margin-bottom:12px">Find duplicate files by CRC32 hash in scanned results</p>
+<button class="btn small" onclick="findDuplicates()">Find Duplicates</button>
+<div id="duplicates-results" style="margin-top:12px"></div>
+</div>
+
+<div class="card">
+<div class="card-title">Deep Clean</div>
+<p class="subtle" style="margin-bottom:12px">Identify non-ROM files in your scanned results</p>
+<button class="btn small" onclick="deepClean()">Analyze</button>
+<div id="deep-clean-results" style="margin-top:12px"></div>
+</div>
+</div>
+
+<!-- Collections & Reports Tab -->
+<div class="tab-content" id="tab-tools-collections">
+<div class="card">
+<div class="card-title" data-i18n="tools_tab_collections">Collections & Reports</div>
+<div class="btn-group" style="margin-bottom:16px">
+<button class="btn small" onclick="saveCollectionAs()">Save Collection</button>
+<button class="btn small" onclick="loadCollectionFile()">Load Collection</button>
+<input type="file" id="collection-file-input" accept=".json,.romcol.json" style="display:none" onchange="handleCollectionFile(this.files)">
+</div>
+<div id="collections-list"></div>
+</div>
+
+<div class="card">
+<div class="card-title">Export Report</div>
+<div class="btn-group">
+<button class="btn small" onclick="exportReport('csv')">Export CSV</button>
+<button class="btn small" onclick="exportReport('json')">Export JSON</button>
+<button class="btn small" onclick="exportReport('txt')">Export TXT</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ DOWNLOADS VIEW ═══════════ -->
+<div id="view-downloads" class="view">
+<div class="view-header">
+<div class="headline" data-i18n="nav_downloads">Downloads</div>
+</div>
+
+<div class="card">
+<div class="card-title" data-i18n="tools_download_title">Download Queue</div>
+<div class="form-group">
+<label class="form-label">URLs (one per line)</label>
+<textarea class="url-list" id="download-urls" placeholder="https://example.com/rom.zip&#10;magnet:?xt=urn:btih:..."></textarea>
+</div>
+<div class="btn-group">
+<button class="btn filled" onclick="queueDownloads()" data-i18n="tools_download_queue">QUEUE TO HYDRA</button>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title" data-i18n="dashboard_transfers_title">Transfers</div>
+<div id="download-queue-list">
+<div class="subtle">No active transfers</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title">Missing ROM Links</div>
+<p class="subtle" style="margin-bottom:12px">Generate download links from missing ROM list</p>
+<div class="form-group">
+<label class="form-label">Base URL</label>
+<input class="form-input" id="myrient-base-url" placeholder="https://myrient.erista.me/files/">
+</div>
+<button class="btn small" onclick="resolveLinksFromMissing()">Resolve Links</button>
+<div id="missing-links-results" style="margin-top:12px"></div>
+</div>
+</div>
+
+</div><!-- end #content -->
+</div><!-- end #main-row -->
+
+<!-- ═══════════ NERVE CENTER ═══════════ -->
+<div id="nerve-center">
+<div class="nc-section nc-hw">
+<div class="nc-label">Hardware</div>
+<div class="nc-value nc-muted" id="nc-hw-info">Browser Runtime</div>
+<div class="nc-value" style="font-size:11px" id="nc-storage-info">--</div>
+</div>
+<div class="nc-section nc-ops">
+<div class="nc-label" data-i18n="monitor_status">Status</div>
+<div class="nc-value" id="nc-status" data-i18n="monitor_idle">Idle</div>
+<div class="progress-bar"><div class="fill" id="nc-progress-fill" style="width:0%"></div></div>
+<div class="nc-muted" id="nc-progress-detail" style="font-size:10px"></div>
+</div>
+<div class="nc-section nc-console">
+<div class="nc-label">Live Console</div>
+<div id="ghost-typer"><span id="ghost-text"></span><span class="cursor">&#x2588;</span></div>
+<div id="nc-log" style="font-size:10px;color:var(--overlay2);margin-top:4px;max-height:30px;overflow:hidden"></div>
+</div>
+</div>
+</div>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// R0MM Artifact - Complete JavaScript Engine
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── i18n ────────────────────────────────────────────────────────────────
+const I18N = {
+  en: {
+    nav_dashboard:"Dashboard",nav_library:"Collection",nav_import_scan:"Rom Manager",
+    nav_tools:"Tools",nav_downloads:"Downloads",nav_language:"Language",
+    dashboard_command_center_title:"COMMAND CENTER",dashboard_dat_syndicate_title:"DAT SYNDICATE",
+    dashboard_bounty_board_title:"BOUNTY BOARD",dashboard_storage_heatmap_title:"STORAGE HEATMAP",
+    dashboard_wire_title:"THE WIRE",dashboard_quick_start_title:"QUICK START",
+    dashboard_home_title:"HOME / SESSION",dashboard_transfers_title:"TRANSFERS",
+    dashboard_dats_loaded:"DATs Loaded",dashboard_no_bounties:"Scan ROMs to see missing bounties",
+    dashboard_no_storage:"No storage data yet",
+    session_load:"Load Snapshot",session_save:"Save Session",session_new:"New Session",
+    session_new_confirm:"Discard current session and start fresh?",
+    tab_identified_files:"Identified Files",tab_unidentified_files:"Unidentified Files",
+    tab_missing_roms:"Missing ROMs",
+    col_original:"Original",col_rom_name:"ROM Name",col_game:"Game",col_system:"System",
+    col_region:"Region",col_size:"Size",col_crc32:"CRC32",col_status:"Status",
+    col_filename:"Filename",col_path:"Path",
+    empty_no_dats_heading:"No DAT files loaded",empty_no_dats_subtext:"Import DAT files to start identifying ROMs",
+    empty_no_dats_cta:"Import DAT",empty_no_scan_heading:"No ROMs scanned yet",
+    empty_no_scan_subtext:"Import DAT files and scan a ROM folder to identify your collection",
+    empty_no_scan_cta:"Scan ROMs",empty_no_results_heading:"No matches found",
+    import_scan_title:"Rom Manager",import_block_dats_title:"DATs for Next Scan",
+    import_block_source_title:"Source Directory",import_block_dest_title:"Destination Rules",
+    import_dat_drop:"Drop DAT files here or click to browse",
+    import_rom_drop:"Drop ROM files here or click to browse",
+    import_dat_library_active_count:"Active DATs: {count}",
+    import_opt_archives:"Scan inside archives (ZIP)",import_opt_blindmatch:"BlindMatch mode",
+    import_action_type:"Action",import_preview:"Preview",import_organize:"Organize",
+    scan_start:"SCAN",scan_abort:"ABORT",scan_complete:"Scan complete: {identified} identified, {unidentified} unidentified",
+    scan_in_progress:"Scanning...",scan_progress:"Scanned {current}/{total} files...",
+    monitor_idle:"Idle",monitor_scanning:"Scanning",monitor_comparing:"Comparing",
+    monitor_status:"Status",monitor_preparing:"Preparing",
+    tools_tab_dats:"DAT Operations",tools_tab_surgery:"ROM Surgery",
+    tools_tab_collections:"Collections & Reports",tools_advanced_dat:"Advanced DAT Tools",
+    tools_download_title:"Download Queue",tools_download_queue:"QUEUE TO HYDRA",
+    tip_strategy_system:"Creates folder per system",tip_strategy_1g1r:"One Game, One ROM: Keeps only best version",
+    tip_strategy_region:"Groups ROMs by region (USA/Europe/Japan)",
+    tip_strategy_alpha:"Creates A-Z folders",tip_strategy_es:"EmulationStation/RetroPie compatible",
+    tip_strategy_flat:"Renamed only, no subfolders",tip_strategy_museum:"Generation/System/Region hierarchy",
+  },
+  "pt-BR": {
+    nav_dashboard:"Painel",nav_library:"Colecao",nav_import_scan:"Rom Manager",
+    nav_tools:"Ferramentas",nav_downloads:"Downloads",nav_language:"Idioma",
+    dashboard_command_center_title:"CENTRO DE COMANDO",dashboard_dat_syndicate_title:"SINDICATO DAT",
+    dashboard_bounty_board_title:"QUADRO DE RECOMPENSAS",dashboard_storage_heatmap_title:"MAPA DE ARMAZENAMENTO",
+    dashboard_wire_title:"O FIO",dashboard_quick_start_title:"INICIO RAPIDO",
+    dashboard_home_title:"INICIO / SESSAO",dashboard_transfers_title:"TRANSFERENCIAS",
+    dashboard_dats_loaded:"DATs Carregados",dashboard_no_bounties:"Escaneie ROMs para ver recompensas",
+    dashboard_no_storage:"Sem dados de armazenamento",
+    session_load:"Carregar Snapshot",session_save:"Salvar Sessao",session_new:"Nova Sessao",
+    session_new_confirm:"Descartar sessao atual e comecar do zero?",
+    tab_identified_files:"Arquivos Identificados",tab_unidentified_files:"Arquivos Nao Identificados",
+    tab_missing_roms:"ROMs Faltando",
+    col_original:"Original",col_rom_name:"Nome ROM",col_game:"Jogo",col_system:"Sistema",
+    col_region:"Regiao",col_size:"Tamanho",col_crc32:"CRC32",col_status:"Status",
+    col_filename:"Arquivo",col_path:"Caminho",
+    empty_no_dats_heading:"Nenhum arquivo DAT carregado",
+    empty_no_dats_subtext:"Importe arquivos DAT para comecar a identificar ROMs",
+    empty_no_dats_cta:"Importar DAT",empty_no_scan_heading:"Nenhuma ROM escaneada ainda",
+    empty_no_scan_subtext:"Importe arquivos DAT e escaneie uma pasta de ROMs para identificar sua colecao",
+    empty_no_scan_cta:"Escanear ROMs",empty_no_results_heading:"Nenhum resultado encontrado",
+    import_scan_title:"Rom Manager",import_block_dats_title:"DATs para Proximo Escaneamento",
+    import_block_source_title:"Diretorio de Origem",import_block_dest_title:"Regras de Destino",
+    import_dat_drop:"Solte arquivos DAT aqui ou clique para navegar",
+    import_rom_drop:"Solte arquivos ROM aqui ou clique para navegar",
+    import_dat_library_active_count:"DATs Ativos: {count}",
+    import_opt_archives:"Escanear dentro de arquivos (ZIP)",import_opt_blindmatch:"Modo BlindMatch",
+    import_action_type:"Acao",import_preview:"Visualizar",import_organize:"Organizar",
+    scan_start:"ESCANEAR",scan_abort:"ABORTAR",
+    scan_complete:"Escaneamento completo: {identified} identificados, {unidentified} nao identificados",
+    scan_in_progress:"Escaneando...",scan_progress:"Escaneados {current}/{total} arquivos...",
+    monitor_idle:"Ocioso",monitor_scanning:"Escaneando",monitor_comparing:"Comparando",
+    monitor_status:"Status",monitor_preparing:"Preparando",
+    tools_tab_dats:"Operacoes DAT",tools_tab_surgery:"Cirurgia ROM",
+    tools_tab_collections:"Colecoes & Relatorios",tools_advanced_dat:"Ferramentas DAT Avancadas",
+    tools_download_title:"Fila de Downloads",tools_download_queue:"ENVIAR PARA HYDRA",
+    tip_strategy_system:"Cria pasta por sistema",tip_strategy_1g1r:"Um Jogo, Uma ROM: Mantem apenas a melhor versao",
+    tip_strategy_region:"Agrupa ROMs por regiao (USA/Europa/Japao)",
+    tip_strategy_alpha:"Cria pastas A-Z",tip_strategy_es:"Compativel com EmulationStation/RetroPie",
+    tip_strategy_flat:"Apenas renomeia, sem subpastas",tip_strategy_museum:"Hierarquia Geracao/Sistema/Regiao",
+  }
+};
+let currentLocale = 'en';
+
+function t(key, params) {
+  let s = (I18N[currentLocale] || I18N.en)[key] || (I18N.en)[key] || key;
+  if (params) Object.entries(params).forEach(([k,v]) => s = s.replace(`{${k}}`, v));
+  return s;
+}
+
+function setLocale(lang) {
+  currentLocale = lang;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const txt = t(key);
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.placeholder = txt;
+    else el.textContent = txt;
+  });
+  updateDashboard();
+  localStorage.setItem('r0mm_locale', lang);
+  ncLog(`[*] Language set to ${lang}`);
+}
+
+// ─── CRC32 ───────────────────────────────────────────────────────────────
+const crc32Table = new Uint32Array(256);
+(function() {
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    crc32Table[i] = c;
+  }
+})();
+
+function crc32(buf) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) crc = crc32Table[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+  return ((crc ^ 0xFFFFFFFF) >>> 0).toString(16).padStart(8, '0');
+}
+
+async function calcCRC32(file) {
+  const CHUNK = 65536;
+  let crc = 0xFFFFFFFF;
+  let offset = 0;
+  while (offset < file.size) {
+    const slice = file.slice(offset, offset + CHUNK);
+    const buf = new Uint8Array(await slice.arrayBuffer());
+    for (let i = 0; i < buf.length; i++) crc = crc32Table[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+    offset += CHUNK;
+  }
+  return ((crc ^ 0xFFFFFFFF) >>> 0).toString(16).padStart(8, '0');
+}
+
+// ─── ZIP Reader (for CRC from headers) ──────────────────────────────────
+async function readZipEntries(file) {
+  const entries = [];
+  try {
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    let offset = 0;
+    while (offset < buf.byteLength - 4) {
+      const sig = view.getUint32(offset, true);
+      if (sig !== 0x04034b50) break; // PK\x03\x04
+      const compMethod = view.getUint16(offset + 8, true);
+      const crcVal = view.getUint32(offset + 14, true);
+      const compSize = view.getUint32(offset + 18, true);
+      const uncompSize = view.getUint32(offset + 22, true);
+      const nameLen = view.getUint16(offset + 26, true);
+      const extraLen = view.getUint16(offset + 28, true);
+      const name = new TextDecoder().decode(new Uint8Array(buf, offset + 30, nameLen));
+      if (!name.endsWith('/')) {
+        entries.push({
+          filename: name,
+          size: uncompSize,
+          crc32: (crcVal >>> 0).toString(16).padStart(8, '0')
+        });
+      }
+      offset += 30 + nameLen + extraLen + compSize;
+    }
+  } catch(e) {}
+  return entries;
+}
+
+// ─── Region Extraction ──────────────────────────────────────────────────
+const REGION_MAP = {
+  '(USA)':'USA','(U)':'USA','(America)':'USA',
+  '(Europe)':'Europe','(E)':'Europe','(EU)':'Europe',
+  '(Japan)':'Japan','(J)':'Japan','(JP)':'Japan',
+  '(World)':'World','(W)':'World',
+  '(Brazil)':'Brazil','(B)':'Brazil','(BR)':'Brazil',
+  '(Korea)':'Korea','(K)':'Korea','(KR)':'Korea',
+  '(China)':'China','(C)':'China','(CN)':'China',
+  '(Germany)':'Germany','(G)':'Germany',
+  '(France)':'France','(F)':'France',
+  '(Spain)':'Spain','(S)':'Spain',
+  '(Italy)':'Italy','(I)':'Italy',
+  '(Australia)':'Australia','(A)':'Australia',
+};
+
+function extractRegion(name) {
+  for (const [pat, reg] of Object.entries(REGION_MAP)) {
+    if (name.includes(pat)) return reg;
+  }
+  return 'Unknown';
+}
+
+function regionClass(region) {
+  const map = {USA:'usa',Europe:'europe',Japan:'japan',World:'world',Brazil:'brazil',Korea:'korea',China:'china'};
+  return 'badge badge-region region-' + (map[region] || 'default');
+}
+
+// ─── DAT Parser (XML + clrmamepro) ─────────────────────────────────────
+function parseDATContent(text, filename) {
+  text = text.replace(/^\uFEFF/, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+  const isClr = !text.trimStart().startsWith('<') && (/^clrmamepro/im.test(text) || /\ngame\s*\(/i.test(text));
+  if (isClr) return parseCLRMamePro(text, filename);
+  return parseXMLDAT(text, filename);
+}
+
+function parseXMLDAT(text, filename) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'text/xml');
+  const errs = doc.querySelectorAll('parsererror');
+  if (errs.length) throw new Error('Invalid XML in DAT file');
+
+  const header = {};
+  const headerEl = doc.querySelector('header');
+  if (headerEl) headerEl.childNodes.forEach(n => { if (n.nodeType === 1) header[n.tagName] = n.textContent || ''; });
+
+  const roms = [];
+  const games = [...doc.querySelectorAll('game'), ...doc.querySelectorAll('machine')];
+  games.forEach(game => {
+    const gameName = game.getAttribute('name') || '';
+    const descEl = game.querySelector('description');
+    const desc = descEl ? descEl.textContent || gameName : gameName;
+    const region = extractRegion(gameName);
+
+    game.querySelectorAll('rom').forEach(rom => {
+      roms.push({
+        name: rom.getAttribute('name') || '',
+        size: parseInt(rom.getAttribute('size') || '0', 10) || 0,
+        crc32: (rom.getAttribute('crc') || '').toLowerCase(),
+        md5: (rom.getAttribute('md5') || '').toLowerCase(),
+        sha1: (rom.getAttribute('sha1') || '').toLowerCase(),
+        description: desc,
+        game_name: gameName,
+        region: region,
+        status: rom.getAttribute('status') || 'verified',
+        dat_id: '',
+        system_name: ''
+      });
+    });
+  });
+  return { header, roms };
+}
+
+function parseCLRMamePro(text, filename) {
+  const header = {};
+  const roms = [];
+  const blockRe = /(\w+)\s*\(([\s\S]*?)\)(?=\s*(?:\w+\s*\(|$))/g;
+
+  // Simple block parser
+  let depth = 0, blockName = '', blockStart = -1;
+  const blocks = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '"') { i++; while (i < text.length && text[i] !== '"') { if (text[i] === '\\') i++; i++; } i++; continue; }
+    if (depth === 0 && /[a-zA-Z]/.test(text[i])) {
+      let w = ''; while (i < text.length && /\S/.test(text[i]) && text[i] !== '(') w += text[i++];
+      while (i < text.length && text[i] !== '(' && text[i] !== '\n') i++;
+      if (text[i] === '(') { blockName = w.toLowerCase(); blockStart = i + 1; depth = 1; i++; continue; }
+    } else if (depth > 0) {
+      if (text[i] === '(') depth++;
+      else if (text[i] === ')') { depth--; if (depth === 0) { blocks.push({ name: blockName, body: text.slice(blockStart, i) }); } }
+    }
+    i++;
+  }
+
+  function parsePairs(body) {
+    const pairs = {};
+    const re = /(\w+)\s+(?:"([^"]*?)"|(\S+))/g;
+    let m;
+    while ((m = re.exec(body)) !== null) pairs[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : m[3];
+    return pairs;
+  }
+
+  blocks.forEach(block => {
+    if (block.name === 'clrmamepro') {
+      Object.assign(header, parsePairs(block.body));
+      return;
+    }
+    if (block.name === 'game' || block.name === 'machine') {
+      const gp = parsePairs(block.body);
+      const gameName = gp.name || '';
+      const desc = gp.description || gameName;
+      const region = gp.region || extractRegion(gameName);
+      // find rom sub-blocks
+      const romBlocks = [];
+      let rd = 0, rn = '', rs = -1;
+      for (let j = 0; j < block.body.length; j++) {
+        if (block.body[j] === '"') { j++; while (j < block.body.length && block.body[j] !== '"') j++; continue; }
+        if (rd === 0 && block.body.substr(j, 3).match(/^rom\s/i)) {
+          while (j < block.body.length && block.body[j] !== '(') j++;
+          if (block.body[j] === '(') { rd = 1; rs = j + 1; rn = 'rom'; j++; continue; }
+        }
+        if (rd > 0) {
+          if (block.body[j] === '(') rd++;
+          if (block.body[j] === ')') { rd--; if (rd === 0) romBlocks.push(block.body.slice(rs, j)); }
+        }
+      }
+      romBlocks.forEach(rb => {
+        const rp = parsePairs(rb);
+        roms.push({
+          name: rp.name || gameName,
+          size: parseInt(rp.size || '0', 10) || 0,
+          crc32: (rp.crc || '').toLowerCase(),
+          md5: (rp.md5 || '').toLowerCase(),
+          sha1: (rp.sha1 || '').toLowerCase(),
+          description: desc,
+          game_name: gameName,
+          region: region,
+          status: rp.status || 'verified',
+          dat_id: '',
+          system_name: ''
+        });
+      });
+      if (romBlocks.length === 0 && (gp.crc || gp.md5 || gp.sha1)) {
+        roms.push({
+          name: gp.name || gameName,
+          size: parseInt(gp.size || '0', 10) || 0,
+          crc32: (gp.crc || '').toLowerCase(),
+          md5: (gp.md5 || '').toLowerCase(),
+          sha1: (gp.sha1 || '').toLowerCase(),
+          description: desc, game_name: gameName, region: region,
+          status: 'verified', dat_id: '', system_name: ''
+        });
+      }
+    }
+  });
+  return { header, roms };
+}
+
+// ─── App State ──────────────────────────────────────────────────────────
+const state = {
+  dats: [],       // [{id, name, description, version, system_name, rom_count, roms:[], enabled:true}]
+  identified: [],  // [{path, filename, size, crc32, md5, sha1, matched_rom:{...}}]
+  unidentified: [],
+  missing: [],
+  romFiles: [],    // File objects from user input
+  scanAborted: false,
+  scanning: false,
+  selectedStrategies: ['system'],
+  downloadQueue: [],
+  collections: [],
+  sortState: {},
+  organizePlan: [],
+};
+
+// ─── Multi-DAT Matcher ──────────────────────────────────────────────────
+class Matcher {
+  constructor() { this.byCrcSize = {}; this.byMd5 = {}; this.bySha1 = {}; }
+  rebuild(dats) {
+    this.byCrcSize = {}; this.byMd5 = {}; this.bySha1 = {};
+    dats.filter(d => d.enabled).forEach(dat => {
+      dat.roms.forEach(rom => {
+        if (rom.crc32 && rom.size) {
+          const k = rom.crc32.toLowerCase() + ':' + rom.size;
+          if (!this.byCrcSize[k]) this.byCrcSize[k] = rom;
+        }
+        if (rom.md5) { const k = rom.md5.toLowerCase(); if (!this.byMd5[k]) this.byMd5[k] = rom; }
+        if (rom.sha1) { const k = rom.sha1.toLowerCase(); if (!this.bySha1[k]) this.bySha1[k] = rom; }
+      });
+    });
+  }
+  match(crc32, size, md5, sha1) {
+    if (crc32) { const k = crc32.toLowerCase() + ':' + size; if (this.byCrcSize[k]) return this.byCrcSize[k]; }
+    if (md5) { const k = md5.toLowerCase(); if (this.byMd5[k]) return this.byMd5[k]; }
+    if (sha1) { const k = sha1.toLowerCase(); if (this.bySha1[k]) return this.bySha1[k]; }
+    return null;
+  }
+}
+const matcher = new Matcher();
+
+// ─── Strategies ─────────────────────────────────────────────────────────
+const STRATEGIES = [
+  {id:'system',name:'By System',desc:'Per-system folders (multi-DAT)',tip:'tip_strategy_system'},
+  {id:'1g1r',name:'1 Game 1 ROM',desc:'Best version per game',tip:'tip_strategy_1g1r'},
+  {id:'region',name:'By Region',desc:'Region folders',tip:'tip_strategy_region'},
+  {id:'alphabetical',name:'Alphabetical',desc:'A-Z folders',tip:'tip_strategy_alpha'},
+  {id:'emulationstation',name:'EmulationStation',desc:'ES/RetroPie compatible',tip:'tip_strategy_es'},
+  {id:'flat',name:'Flat',desc:'Renamed only',tip:'tip_strategy_flat'},
+  {id:'museum',name:'Museum',desc:'Generation/System/Region curation',tip:'tip_strategy_museum'},
+];
+
+// ─── ROM Extensions ─────────────────────────────────────────────────────
+const ROM_EXTS = new Set(['.bin','.rom','.nes','.sfc','.smc','.gba','.gbc','.gb','.nds','.3ds','.n64','.z64','.v64','.md','.gen','.smd','.gg','.sms','.pce','.iso','.cue','.cdi','.gdi','.chd','.a26','.a78','.lnx','.ngp','.ngc','.ws','.wsc','.vb','.vec','.col','.int','.jag','.j64','.ndd','.fds','.nsf','.32x','.cso','.pbp','.vpk','.xci','.nsp','.wad','.wbfs','.gcm','.rvz','.wia','.dol','.elf','.prg','.d64','.t64','.tap','.tzx','.crt','.adf','.ipf','.st','.stx','.msa']);
+const NON_ROM_EXTS = new Set(['.txt','.md','.rtf','.pdf','.jpg','.jpeg','.png','.gif','.bmp','.webp','.svg','.ico','.mp3','.wav','.flac','.ogg','.mp4','.mkv','.avi','.mov','.doc','.docx','.xls','.xlsx','.json','.yaml','.yml','.xml','.html','.css','.js','.ini','.cfg','.log','.csv','.py','.c','.cpp','.java','.exe','.dll','.bat','.db','.sqlite']);
+
+function isScannable(name) {
+  const ext = '.' + name.split('.').pop().toLowerCase();
+  if (ext === '.zip') return true;
+  if (ROM_EXTS.has(ext)) return true;
+  if (NON_ROM_EXTS.has(ext)) return false;
+  return true;
+}
+
+// ─── Utility ────────────────────────────────────────────────────────────
+function formatSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024, sizes = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function genId() { return Math.random().toString(36).substr(2, 8); }
+
+// ─── Nerve Center Logging ───────────────────────────────────────────────
+const ncLogEl = () => document.getElementById('nc-log');
+function ncLog(msg) {
+  const el = ncLogEl();
+  if (!el) return;
+  const line = document.createElement('div');
+  if (msg.startsWith('[!]')) line.style.color = 'var(--secondary)';
+  else if (msg.startsWith('[?]')) line.style.color = 'var(--secondary)';
+  else line.style.color = 'var(--primary)';
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  // keep last 50
+  while (el.children.length > 50) el.removeChild(el.firstChild);
+}
+
+function setStatus(status, detail) {
+  const el = document.getElementById('nc-status');
+  if (el) el.textContent = status;
+  const det = document.getElementById('nc-progress-detail');
+  if (det) det.textContent = detail || '';
+}
+
+function setProgress(pct) {
+  document.getElementById('nc-progress-fill').style.width = pct + '%';
+  document.getElementById('scan-progress-fill').style.width = pct + '%';
+}
+
+// ─── Ghost Typer ────────────────────────────────────────────────────────
+const RETRO_QUOTES = [
+  "The cake is a lie.",
+  "It's dangerous to go alone! Take this.",
+  "Do a barrel roll!",
+  "All your base are belong to us.",
+  "War. War never changes.",
+  "The right man in the wrong place can make all the difference.",
+  "Stay awhile and listen.",
+  "Would you kindly?",
+  "I used to be an adventurer like you, then I took an arrow in the knee.",
+  "Hey! Listen!",
+  "A man chooses, a slave obeys.",
+  "Thank you Mario! But our princess is in another castle!",
+  "Finish him!",
+  "Rise and shine, Mr. Freeman. Rise and shine.",
+  "Nothing is true, everything is permitted.",
+];
+let ghostIdx = 0, ghostCharIdx = 0, ghostTyping = true;
+function ghostType() {
+  const el = document.getElementById('ghost-text');
+  if (!el) return;
+  const quote = RETRO_QUOTES[ghostIdx % RETRO_QUOTES.length];
+  if (ghostTyping) {
+    if (ghostCharIdx <= quote.length) {
+      el.textContent = quote.substring(0, ghostCharIdx);
+      ghostCharIdx++;
+      setTimeout(ghostType, 40 + Math.random() * 30);
+    } else {
+      ghostTyping = false;
+      setTimeout(ghostType, 3000);
+    }
+  } else {
+    ghostIdx++;
+    ghostCharIdx = 0;
+    ghostTyping = true;
+    el.textContent = '';
+    setTimeout(ghostType, 500);
+  }
+}
+
+// ─── View Navigation ────────────────────────────────────────────────────
+function switchView(viewId) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const view = document.getElementById('view-' + viewId);
+  if (view) view.classList.add('active');
+  const nav = document.querySelector(`.nav-item[data-view="${viewId}"]`);
+  if (nav) nav.classList.add('active');
+  ncLog(`[*] Navigated to ${viewId}`);
+}
+
+function switchCollectionTab(tabId) {
+  document.querySelectorAll('#collection-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+  document.querySelectorAll('#view-collection .tab-content').forEach(tc => tc.classList.toggle('active', tc.id === 'tab-' + tabId));
+}
+
+function switchToolsTab(tabId) {
+  document.querySelectorAll('#tools-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+  document.querySelectorAll('#view-tools .tab-content').forEach(tc => tc.classList.toggle('active', tc.id === 'tab-' + tabId));
+}
+
+// ─── DAT File Handling ──────────────────────────────────────────────────
+async function handleDATFiles(files) {
+  for (const file of files) {
+    try {
+      ncLog(`[*] Loading DAT: ${file.name}`);
+      setStatus(t('monitor_preparing'), file.name);
+      let text;
+      if (file.name.endsWith('.zip')) {
+        // Read zip, find .dat/.xml inside
+        const entries = [];
+        const buf = await file.arrayBuffer();
+        const view = new DataView(buf);
+        let offset = 0;
+        while (offset < buf.byteLength - 4) {
+          const sig = view.getUint32(offset, true);
+          if (sig !== 0x04034b50) break;
+          const compSize = view.getUint32(offset + 18, true);
+          const nameLen = view.getUint16(offset + 26, true);
+          const extraLen = view.getUint16(offset + 28, true);
+          const name = new TextDecoder().decode(new Uint8Array(buf, offset + 30, nameLen));
+          if (name.endsWith('.dat') || name.endsWith('.xml')) {
+            // only uncompressed supported in simple reader
+            const data = new Uint8Array(buf, offset + 30 + nameLen + extraLen, compSize);
+            text = new TextDecoder('utf-8').decode(data);
+            break;
+          }
+          offset += 30 + nameLen + extraLen + compSize;
+        }
+        if (!text) throw new Error('No DAT/XML found in ZIP');
+      } else {
+        text = await file.text();
+      }
+
+      const { header, roms } = parseDATContent(text, file.name);
+      const datId = genId();
+      const name = header.name || header.description || file.name.replace(/\.\w+$/, '');
+      const systemName = name;
+
+      roms.forEach(r => { r.dat_id = datId; r.system_name = systemName; });
+
+      state.dats.push({
+        id: datId,
+        name: name,
+        description: header.description || '',
+        version: header.version || '',
+        system_name: systemName,
+        rom_count: roms.length,
+        roms: roms,
+        enabled: true,
+      });
+
+      ncLog(`[*] DAT loaded: ${name} (${roms.length} ROMs)`);
+    } catch (e) {
+      ncLog(`[!] Error loading DAT ${file.name}: ${e.message}`);
+    }
+  }
+  matcher.rebuild(state.dats);
+  renderDATList();
+  updateDashboard();
+  setStatus(t('monitor_idle'));
+}
+
+function renderDATList() {
+  const el = document.getElementById('dat-list');
+  el.innerHTML = '';
+  state.dats.forEach((dat, idx) => {
+    const item = document.createElement('div');
+    item.className = 'dat-item';
+    item.innerHTML = `
+      <input type="checkbox" class="dat-toggle" ${dat.enabled ? 'checked' : ''} onchange="toggleDAT('${dat.id}', this.checked)">
+      <div class="dat-name">${escHtml(dat.name)}</div>
+      <div class="dat-count">${dat.rom_count} ROMs</div>
+      <button class="btn small secondary" onclick="removeDAT('${dat.id}')" style="padding:2px 8px;font-size:10px">X</button>
+    `;
+    el.appendChild(item);
+  });
+  document.getElementById('dat-active-count').textContent = t('import_dat_library_active_count', { count: state.dats.filter(d => d.enabled).length });
+
+  // Update tools DAT selects
+  ['diff-dat-a','diff-dat-b'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    sel.innerHTML = '<option value="">Select DAT...</option>';
+    state.dats.forEach(d => { sel.innerHTML += `<option value="${d.id}">${escHtml(d.name)}</option>`; });
+  });
+}
+
+function toggleDAT(id, enabled) {
+  const dat = state.dats.find(d => d.id === id);
+  if (dat) { dat.enabled = enabled; matcher.rebuild(state.dats); updateDashboard(); }
+  ncLog(`[*] DAT ${id} ${enabled ? 'enabled' : 'disabled'}`);
+}
+
+function removeDAT(id) {
+  state.dats = state.dats.filter(d => d.id !== id);
+  matcher.rebuild(state.dats);
+  renderDATList();
+  updateDashboard();
+  ncLog(`[*] DAT removed`);
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ─── ROM File Handling ──────────────────────────────────────────────────
+function handleROMFiles(files) {
+  state.romFiles = Array.from(files).filter(f => isScannable(f.name));
+  ncLog(`[*] ${state.romFiles.length} scannable files selected`);
+  document.getElementById('rom-drop-zone').querySelector('p').textContent =
+    `${state.romFiles.length} files selected`;
+}
+
+// ─── Scanning ───────────────────────────────────────────────────────────
+async function startScan() {
+  if (state.scanning) return;
+  if (state.romFiles.length === 0) { ncLog('[!] No ROM files selected'); return; }
+  if (state.dats.length === 0 && !document.getElementById('opt-blindmatch').checked) {
+    ncLog('[!] No DATs loaded. Enable BlindMatch or load DATs first'); return;
+  }
+
+  state.scanning = true;
+  state.scanAborted = false;
+  state.identified = [];
+  state.unidentified = [];
+
+  document.getElementById('btn-scan').style.display = 'none';
+  document.getElementById('btn-abort-scan').style.display = '';
+  document.getElementById('scan-progress-section').style.display = '';
+  document.getElementById('scan-phase').textContent = t('monitor_scanning');
+  setStatus(t('monitor_scanning'));
+
+  const scanArchives = document.getElementById('opt-archives').checked;
+  const blindMatch = document.getElementById('opt-blindmatch').checked;
+  const blindSystem = document.getElementById('blindmatch-system').value.trim();
+  const total = state.romFiles.length;
+
+  ncLog(`[*] Starting scan of ${total} files...`);
+
+  for (let i = 0; i < total; i++) {
+    if (state.scanAborted) { ncLog('[!] Scan aborted'); break; }
+
+    const file = state.romFiles[i];
+    const pct = Math.round(((i + 1) / total) * 100);
+    setProgress(pct);
+    document.getElementById('scan-progress-text').textContent = t('scan_progress', { current: i + 1, total });
+    setStatus(t('monitor_scanning'), `${i + 1}/${total} - ${file.name}`);
+
+    try {
+      if (file.name.toLowerCase().endsWith('.zip') && scanArchives) {
+        const entries = await readZipEntries(file);
+        entries.forEach(entry => {
+          const scanned = {
+            path: file.name + '|' + entry.filename,
+            filename: entry.filename,
+            size: entry.size,
+            crc32: entry.crc32,
+            md5: '', sha1: '', matched_rom: null
+          };
+          if (blindMatch) {
+            scanned.matched_rom = { name: entry.filename, size: entry.size, crc32: entry.crc32,
+              game_name: entry.filename.replace(/\.\w+$/, ''), region: extractRegion(entry.filename),
+              system_name: blindSystem || 'Unknown', status: 'blindmatch', dat_id: 'blind' };
+            state.identified.push(scanned);
+          } else {
+            const match = matcher.match(entry.crc32, entry.size, '', '');
+            scanned.matched_rom = match;
+            if (match) state.identified.push(scanned);
+            else state.unidentified.push(scanned);
+          }
+        });
+      } else {
+        const crcHash = await calcCRC32(file);
+        const scanned = {
+          path: file.webkitRelativePath || file.name,
+          filename: file.name,
+          size: file.size,
+          crc32: crcHash,
+          md5: '', sha1: '', matched_rom: null
+        };
+        if (blindMatch) {
+          scanned.matched_rom = { name: file.name, size: file.size, crc32: crcHash,
+            game_name: file.name.replace(/\.\w+$/, ''), region: extractRegion(file.name),
+            system_name: blindSystem || 'Unknown', status: 'blindmatch', dat_id: 'blind' };
+          state.identified.push(scanned);
+        } else {
+          const match = matcher.match(crcHash, file.size, '', '');
+          scanned.matched_rom = match;
+          if (match) state.identified.push(scanned);
+          else state.unidentified.push(scanned);
+        }
+      }
+    } catch (e) {
+      ncLog(`[!] Error scanning ${file.name}: ${e.message}`);
+    }
+
+    // Yield to UI every 10 files
+    if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  // Calculate missing
+  state.missing = calculateMissing();
+
+  state.scanning = false;
+  document.getElementById('btn-scan').style.display = '';
+  document.getElementById('btn-abort-scan').style.display = 'none';
+  document.getElementById('scan-progress-section').style.display = 'none';
+  setProgress(0);
+  setStatus(t('monitor_idle'));
+
+  ncLog(`[*] ${t('scan_complete', { identified: state.identified.length, unidentified: state.unidentified.length })}`);
+
+  renderResults();
+  updateDashboard();
+}
+
+function abortScan() {
+  state.scanAborted = true;
+  ncLog('[!] Aborting scan...');
+}
+
+function calculateMissing() {
+  const foundKeys = new Set();
+  state.identified.forEach(f => {
+    if (f.matched_rom && f.matched_rom.crc32) {
+      foundKeys.add(f.matched_rom.crc32.toLowerCase() + ':' + f.matched_rom.size);
+    }
+  });
+  const missing = [];
+  state.dats.filter(d => d.enabled).forEach(dat => {
+    dat.roms.forEach(rom => {
+      const k = (rom.crc32 || '').toLowerCase() + ':' + rom.size;
+      if (!foundKeys.has(k)) missing.push(rom);
+    });
+  });
+  return missing;
+}
+
+// ─── Render Results ─────────────────────────────────────────────────────
+function renderResults() {
+  renderIdentified();
+  renderUnidentified();
+  renderMissing();
+}
+
+function renderIdentified() {
+  const tbody = document.getElementById('identified-tbody');
+  const empty = document.getElementById('identified-empty');
+  const wrap = document.getElementById('identified-table-wrap');
+  if (state.identified.length === 0) { empty.style.display = ''; wrap.style.display = 'none'; return; }
+  empty.style.display = 'none'; wrap.style.display = '';
+  tbody.innerHTML = '';
+  state.identified.forEach(f => {
+    const r = f.matched_rom || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td title="${escHtml(f.path)}">${escHtml(f.filename)}</td>
+      <td>${escHtml(r.name || '')}</td>
+      <td>${escHtml(r.game_name || '')}</td>
+      <td>${escHtml(r.system_name || '')}</td>
+      <td><span class="${regionClass(r.region || 'Unknown')}">${r.region || 'Unknown'}</span></td>
+      <td>${formatSize(f.size)}</td>
+      <td class="mono">${f.crc32}</td>
+      <td><span class="badge ${r.status === 'verified' ? 'badge-ok' : 'badge-muted'}">${r.status || ''}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderUnidentified() {
+  const tbody = document.getElementById('unidentified-tbody');
+  const empty = document.getElementById('unidentified-empty');
+  const wrap = document.getElementById('unidentified-table-wrap');
+  if (state.unidentified.length === 0) { empty.style.display = ''; wrap.style.display = 'none'; return; }
+  empty.style.display = 'none'; wrap.style.display = '';
+  tbody.innerHTML = '';
+  state.unidentified.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escHtml(f.filename)}</td>
+      <td title="${escHtml(f.path)}">${escHtml(f.path)}</td>
+      <td>${formatSize(f.size)}</td>
+      <td class="mono">${f.crc32}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderMissing() {
+  const tbody = document.getElementById('missing-tbody');
+  const empty = document.getElementById('missing-empty');
+  const wrap = document.getElementById('missing-table-wrap');
+  if (state.missing.length === 0) { empty.style.display = ''; wrap.style.display = 'none'; return; }
+  empty.style.display = 'none'; wrap.style.display = '';
+  tbody.innerHTML = '';
+  state.missing.forEach(rom => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escHtml(rom.name)}</td>
+      <td>${escHtml(rom.game_name || '')}</td>
+      <td>${escHtml(rom.system_name || '')}</td>
+      <td><span class="${regionClass(rom.region || 'Unknown')}">${rom.region || 'Unknown'}</span></td>
+      <td>${formatSize(rom.size)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ─── Table Sorting ──────────────────────────────────────────────────────
+function sortTable(tableId, column) {
+  const key = tableId + ':' + column;
+  const dir = state.sortState[key] === 'asc' ? 'desc' : 'asc';
+  state.sortState[key] = dir;
+
+  let data;
+  if (tableId === 'identified') data = state.identified;
+  else if (tableId === 'unidentified') data = state.unidentified;
+  else if (tableId === 'missing') data = state.missing;
+
+  data.sort((a, b) => {
+    let va, vb;
+    if (tableId === 'identified') {
+      const ra = a.matched_rom || {}, rb = b.matched_rom || {};
+      if (column === 'original_file') { va = a.filename; vb = b.filename; }
+      else if (column === 'rom_name') { va = ra.name || ''; vb = rb.name || ''; }
+      else if (column === 'game_name') { va = ra.game_name || ''; vb = rb.game_name || ''; }
+      else if (column === 'system') { va = ra.system_name || ''; vb = rb.system_name || ''; }
+      else if (column === 'region') { va = ra.region || ''; vb = rb.region || ''; }
+      else if (column === 'size') { va = a.size; vb = b.size; }
+      else if (column === 'crc32') { va = a.crc32; vb = b.crc32; }
+      else if (column === 'status') { va = ra.status || ''; vb = rb.status || ''; }
+    } else if (tableId === 'unidentified') {
+      if (column === 'filename') { va = a.filename; vb = b.filename; }
+      else if (column === 'path') { va = a.path; vb = b.path; }
+      else if (column === 'size') { va = a.size; vb = b.size; }
+      else if (column === 'crc32') { va = a.crc32; vb = b.crc32; }
+    } else if (tableId === 'missing') {
+      if (column === 'rom_name') { va = a.name; vb = b.name; }
+      else if (column === 'game_name') { va = a.game_name || ''; vb = b.game_name || ''; }
+      else if (column === 'system') { va = a.system_name || ''; vb = b.system_name || ''; }
+      else if (column === 'region') { va = a.region || ''; vb = b.region || ''; }
+      else if (column === 'size') { va = a.size; vb = b.size; }
+    }
+    if (typeof va === 'number') return dir === 'asc' ? va - vb : vb - va;
+    va = (va || '').toLowerCase(); vb = (vb || '').toLowerCase();
+    return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  if (tableId === 'identified') renderIdentified();
+  else if (tableId === 'unidentified') renderUnidentified();
+  else if (tableId === 'missing') renderMissing();
+}
+
+// ─── Organization ───────────────────────────────────────────────────────
+function renderStrategies() {
+  const el = document.getElementById('strategy-list');
+  el.innerHTML = '';
+  STRATEGIES.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'strategy-item' + (state.selectedStrategies.includes(s.id) ? ' selected' : '');
+    div.onclick = () => toggleStrategy(s.id);
+    div.innerHTML = `
+      <input type="checkbox" ${state.selectedStrategies.includes(s.id) ? 'checked' : ''} onclick="event.stopPropagation();toggleStrategy('${s.id}')">
+      <div><div class="name">${s.name}</div><div class="desc">${t(s.tip) || s.desc}</div></div>
+    `;
+    el.appendChild(div);
+  });
+}
+
+function toggleStrategy(id) {
+  const idx = state.selectedStrategies.indexOf(id);
+  if (idx >= 0) state.selectedStrategies.splice(idx, 1);
+  else {
+    if (id === 'emulationstation') state.selectedStrategies = ['emulationstation'];
+    else { state.selectedStrategies = state.selectedStrategies.filter(s => s !== 'emulationstation'); state.selectedStrategies.push(id); }
+  }
+  renderStrategies();
+}
+
+function previewOrganize() {
+  if (state.identified.length === 0) { ncLog('[!] No identified files to organize'); return; }
+  const plan = generateOrganizationPlan();
+  state.organizePlan = plan;
+
+  const el = document.getElementById('organize-preview');
+  const body = document.getElementById('organize-preview-body');
+  el.style.display = '';
+  body.innerHTML = '';
+
+  const totalSize = plan.reduce((s, a) => s + (a.size || 0), 0);
+  body.innerHTML = `
+    <div style="margin-bottom:12px">
+      <span class="badge badge-ok">${plan.length} files</span>
+      <span class="subtle" style="margin-left:8px">${formatSize(totalSize)} total</span>
+    </div>
+    <div class="table-wrap" style="max-height:300px">
+      <table><thead><tr><th>Source</th><th>Destination</th></tr></thead>
+      <tbody>${plan.map(a => `<tr><td>${escHtml(a.source)}</td><td style="color:var(--primary)">${escHtml(a.destination)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `;
+  ncLog(`[*] Organization preview: ${plan.length} planned actions`);
+}
+
+function generateOrganizationPlan() {
+  const actions = [];
+  const action = document.getElementById('organize-action').value;
+  state.identified.forEach(f => {
+    const rom = f.matched_rom;
+    if (!rom) return;
+    let destPath = '';
+    state.selectedStrategies.forEach(sid => {
+      switch (sid) {
+        case 'system': destPath += (rom.system_name || 'Unknown') + '/'; break;
+        case 'region': destPath += (rom.region || 'Unknown') + '/'; break;
+        case 'alphabetical': {
+          const letter = (rom.game_name || rom.name || 'Z')[0].toUpperCase();
+          destPath += (/[A-Z]/.test(letter) ? letter : '#') + '/';
+          break;
+        }
+        case '1g1r': destPath += (rom.system_name || 'Unknown') + '/'; break;
+        case 'emulationstation': destPath += 'roms/' + (rom.system_name || 'unknown').toLowerCase().replace(/\s+/g, '') + '/'; break;
+        case 'museum': destPath += 'Museum/' + (rom.system_name || 'Unknown') + '/' + (rom.region || 'Unknown') + '/'; break;
+        case 'flat': break;
+      }
+    });
+    destPath += rom.name || f.filename;
+    actions.push({ source: f.path || f.filename, destination: destPath, action_type: action, size: f.size });
+  });
+  return actions;
+}
+
+function executeOrganize() {
+  if (state.organizePlan.length === 0) { previewOrganize(); }
+  if (state.organizePlan.length === 0) return;
+  // In browser, we generate a downloadable manifest
+  const manifest = JSON.stringify(state.organizePlan, null, 2);
+  downloadFile('r0mm_organize_plan.json', manifest, 'application/json');
+  ncLog(`[*] Organization plan exported (${state.organizePlan.length} actions)`);
+}
+
+// ─── Dashboard Update ───────────────────────────────────────────────────
+function updateDashboard() {
+  document.getElementById('stat-dats').textContent = state.dats.filter(d => d.enabled).length;
+  document.getElementById('stat-identified').textContent = state.identified.length;
+  document.getElementById('stat-unidentified').textContent = state.unidentified.length;
+  document.getElementById('stat-missing').textContent = state.missing.length;
+  document.getElementById('qa-collection-count').textContent = (state.identified.length + state.unidentified.length) + ' ROMs';
+
+  // DAT Syndicate
+  const synBody = document.getElementById('dat-syndicate-body');
+  if (state.dats.length === 0) {
+    synBody.innerHTML = `<div class="subtle">${t('empty_no_dats_heading')}</div>`;
+  } else {
+    synBody.innerHTML = state.dats.map(d =>
+      `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--surface0)">
+        <span style="color:${d.enabled ? 'var(--text)' : 'var(--overlay1)'}">${escHtml(d.name)}</span>
+        <span class="mono" style="font-size:11px">${d.rom_count}</span>
+      </div>`
+    ).join('');
+  }
+
+  // Bounty Board
+  const bountyBody = document.getElementById('bounty-board-body');
+  if (state.missing.length === 0) {
+    bountyBody.innerHTML = `<div class="subtle">${t('dashboard_no_bounties')}</div>`;
+  } else {
+    const bySystem = {};
+    state.missing.forEach(r => { const s = r.system_name || 'Unknown'; bySystem[s] = (bySystem[s] || 0) + 1; });
+    const totalRoms = state.dats.filter(d => d.enabled).reduce((s, d) => s + d.rom_count, 0);
+    bountyBody.innerHTML = Object.entries(bySystem).map(([sys, count]) => {
+      const datRoms = state.dats.find(d => d.system_name === sys);
+      const total = datRoms ? datRoms.rom_count : count;
+      const found = total - count;
+      const pct = total > 0 ? Math.round((found / total) * 100) : 0;
+      return `<div class="bar-row">
+        <div class="bar-label">${escHtml(sys)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="bar-pct">${pct}%</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Storage Heatmap
+  const storageBody = document.getElementById('storage-heatmap-body');
+  if (state.identified.length === 0) {
+    storageBody.innerHTML = `<div class="subtle">${t('dashboard_no_storage')}</div>`;
+  } else {
+    const bySystem = {};
+    state.identified.forEach(f => {
+      const sys = (f.matched_rom || {}).system_name || 'Unknown';
+      bySystem[sys] = (bySystem[sys] || 0) + (f.size || 0);
+    });
+    const totalSize = Object.values(bySystem).reduce((a, b) => a + b, 0);
+    storageBody.innerHTML = `<div style="margin-bottom:8px;color:var(--primary);font-family:var(--font-mono)">${formatSize(totalSize)} tracked</div>` +
+      Object.entries(bySystem).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([sys, size]) => {
+        const pct = totalSize > 0 ? Math.round((size / totalSize) * 100) : 0;
+        return `<div class="bar-row">
+          <div class="bar-label">${escHtml(sys)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+          <div class="bar-pct">${formatSize(size)}</div>
+        </div>`;
+      }).join('');
+  }
+
+  // Collection subtitle
+  document.getElementById('collection-subtitle').textContent =
+    `${state.identified.length} identified, ${state.unidentified.length} unidentified, ${state.missing.length} missing`;
+
+  // Storage info in nerve center
+  if (navigator.storage && navigator.storage.estimate) {
+    navigator.storage.estimate().then(est => {
+      document.getElementById('nc-storage-info').textContent =
+        `Storage: ${formatSize(est.usage || 0)} / ${formatSize(est.quota || 0)}`;
+    });
+  }
+}
+
+// ─── Session Management ─────────────────────────────────────────────────
+function saveSession() {
+  const session = {
+    version: 1,
+    timestamp: new Date().toISOString(),
+    dats: state.dats.map(d => ({ id: d.id, name: d.name, description: d.description, version: d.version,
+      system_name: d.system_name, rom_count: d.rom_count, enabled: d.enabled, roms: d.roms })),
+    identified: state.identified,
+    unidentified: state.unidentified,
+    locale: currentLocale,
+  };
+  localStorage.setItem('r0mm_session', JSON.stringify(session));
+  ncLog('[*] Session saved to browser storage');
+
+  // Also offer download
+  downloadFile('r0mm_session.json', JSON.stringify(session, null, 2), 'application/json');
+}
+
+function loadSessionFromFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async () => {
+    if (!input.files.length) return;
+    try {
+      const text = await input.files[0].text();
+      const session = JSON.parse(text);
+      restoreSession(session);
+      ncLog('[*] Session loaded from file');
+    } catch (e) { ncLog(`[!] Error loading session: ${e.message}`); }
+  };
+  input.click();
+}
+
+function restoreSession(session) {
+  state.dats = session.dats || [];
+  state.identified = session.identified || [];
+  state.unidentified = session.unidentified || [];
+  state.missing = calculateMissing();
+  if (session.locale) { currentLocale = session.locale; document.getElementById('lang-select').value = session.locale; }
+  matcher.rebuild(state.dats);
+  renderDATList();
+  renderResults();
+  updateDashboard();
+}
+
+function newSession() {
+  if (!confirm(t('session_new_confirm'))) return;
+  state.dats = [];
+  state.identified = [];
+  state.unidentified = [];
+  state.missing = [];
+  state.romFiles = [];
+  state.organizePlan = [];
+  state.downloadQueue = [];
+  matcher.rebuild(state.dats);
+  renderDATList();
+  renderResults();
+  updateDashboard();
+  localStorage.removeItem('r0mm_session');
+  ncLog('[*] New session started');
+}
+
+// ─── Collections ────────────────────────────────────────────────────────
+function saveCollectionAs() {
+  const name = prompt('Collection name:', 'My Collection');
+  if (!name) return;
+  const col = {
+    version: 1, name: name, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    dat_infos: state.dats.map(d => ({ id: d.id, name: d.name, system_name: d.system_name, rom_count: d.rom_count })),
+    identified: state.identified, unidentified: state.unidentified,
+  };
+  downloadFile(`${name}.romcol.json`, JSON.stringify(col, null, 2), 'application/json');
+  ncLog(`[*] Collection "${name}" exported`);
+}
+
+function loadCollectionFile() { document.getElementById('collection-file-input').click(); }
+function handleCollectionFile(files) {
+  if (!files.length) return;
+  files[0].text().then(text => {
+    const col = JSON.parse(text);
+    state.identified = col.identified || [];
+    state.unidentified = col.unidentified || [];
+    state.missing = calculateMissing();
+    renderResults();
+    updateDashboard();
+    ncLog(`[*] Collection "${col.name}" loaded`);
+  }).catch(e => ncLog(`[!] Error: ${e.message}`));
+}
+
+// ─── Reports ────────────────────────────────────────────────────────────
+function exportReport(format) {
+  let content, mime, ext;
+  if (format === 'json') {
+    content = JSON.stringify({ identified: state.identified, unidentified: state.unidentified, missing: state.missing }, null, 2);
+    mime = 'application/json'; ext = 'json';
+  } else if (format === 'csv') {
+    const rows = [['Type','Filename','ROM Name','Game','System','Region','Size','CRC32','Status']];
+    state.identified.forEach(f => {
+      const r = f.matched_rom || {};
+      rows.push(['Identified', f.filename, r.name||'', r.game_name||'', r.system_name||'', r.region||'', f.size, f.crc32, r.status||'']);
+    });
+    state.unidentified.forEach(f => rows.push(['Unidentified', f.filename, '', '', '', '', f.size, f.crc32, '']));
+    state.missing.forEach(r => rows.push(['Missing', '', r.name, r.game_name||'', r.system_name||'', r.region||'', r.size, r.crc32||'', '']));
+    content = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    mime = 'text/csv'; ext = 'csv';
+  } else {
+    let lines = ['R0MM Report', '=' .repeat(60), '', `Generated: ${new Date().toISOString()}`, '',
+      `Identified: ${state.identified.length}`, `Unidentified: ${state.unidentified.length}`, `Missing: ${state.missing.length}`, '',
+      'IDENTIFIED', '-'.repeat(40)];
+    state.identified.forEach(f => { const r = f.matched_rom || {}; lines.push(`${f.filename} -> ${r.game_name||'?'} [${r.system_name||'?'}] (${r.region||'?'}) CRC:${f.crc32}`); });
+    lines.push('', 'UNIDENTIFIED', '-'.repeat(40));
+    state.unidentified.forEach(f => lines.push(`${f.filename} (${formatSize(f.size)}) CRC:${f.crc32}`));
+    lines.push('', 'MISSING', '-'.repeat(40));
+    state.missing.forEach(r => lines.push(`${r.name} - ${r.game_name||'?'} [${r.system_name||'?'}] (${r.region||'?'})`));
+    content = lines.join('\n');
+    mime = 'text/plain'; ext = 'txt';
+  }
+  downloadFile(`r0mm_report.${ext}`, content, mime);
+  ncLog(`[*] Report exported as ${format.toUpperCase()}`);
+}
+
+// ─── Tools ──────────────────────────────────────────────────────────────
+function diffDATs() {
+  const aId = document.getElementById('diff-dat-a').value;
+  const bId = document.getElementById('diff-dat-b').value;
+  if (!aId || !bId) { ncLog('[!] Select two DATs to compare'); return; }
+  const datA = state.dats.find(d => d.id === aId);
+  const datB = state.dats.find(d => d.id === bId);
+  if (!datA || !datB) return;
+
+  const aKeys = new Set(datA.roms.map(r => (r.crc32||'') + ':' + r.size));
+  const bKeys = new Set(datB.roms.map(r => (r.crc32||'') + ':' + r.size));
+
+  const onlyA = datA.roms.filter(r => !bKeys.has((r.crc32||'') + ':' + r.size));
+  const onlyB = datB.roms.filter(r => !aKeys.has((r.crc32||'') + ':' + r.size));
+  const common = datA.roms.filter(r => bKeys.has((r.crc32||'') + ':' + r.size));
+
+  document.getElementById('diff-results').innerHTML = `
+    <div class="stat-card" style="margin-bottom:8px"><div class="label">Common</div><div class="value">${common.length}</div></div>
+    <div style="display:flex;gap:12px">
+      <div class="stat-card" style="flex:1"><div class="label">Only in ${escHtml(datA.name)}</div><div class="value secondary">${onlyA.length}</div></div>
+      <div class="stat-card" style="flex:1"><div class="label">Only in ${escHtml(datB.name)}</div><div class="value secondary">${onlyB.length}</div></div>
+    </div>
+  `;
+  ncLog(`[*] DAT diff: ${common.length} common, ${onlyA.length} only A, ${onlyB.length} only B`);
+}
+
+function mergeDATs() {
+  if (state.dats.length < 2) { ncLog('[!] Need at least 2 DATs to merge'); return; }
+  const merged = { id: genId(), name: 'Merged DAT', description: 'Merged from ' + state.dats.map(d => d.name).join(', '),
+    version: '', system_name: 'Multi-System', rom_count: 0, roms: [], enabled: true };
+  const seen = new Set();
+  state.dats.forEach(d => {
+    d.roms.forEach(r => {
+      const k = (r.crc32||'') + ':' + r.size;
+      if (!seen.has(k)) { seen.add(k); merged.roms.push({...r, dat_id: merged.id, system_name: r.system_name}); }
+    });
+  });
+  merged.rom_count = merged.roms.length;
+  // Export as XML DAT
+  let xml = `<?xml version="1.0"?>\n<datafile>\n<header>\n<name>${escHtml(merged.name)}</name>\n<description>${escHtml(merged.description)}</description>\n</header>\n`;
+  merged.roms.forEach(r => {
+    xml += `<game name="${escHtml(r.game_name || r.name)}">\n<description>${escHtml(r.description || r.game_name || r.name)}</description>\n`;
+    xml += `<rom name="${escHtml(r.name)}" size="${r.size}" crc="${r.crc32}"${r.md5 ? ` md5="${r.md5}"` : ''}${r.sha1 ? ` sha1="${r.sha1}"` : ''}/>\n</game>\n`;
+  });
+  xml += '</datafile>';
+  downloadFile('merged.dat', xml, 'application/xml');
+  ncLog(`[*] Merged DAT exported: ${merged.rom_count} unique ROMs`);
+}
+
+function findDuplicates() {
+  const byCrc = {};
+  state.identified.concat(state.unidentified).forEach(f => {
+    if (f.crc32) { (byCrc[f.crc32] = byCrc[f.crc32] || []).push(f); }
+  });
+  const dupes = Object.entries(byCrc).filter(([_, files]) => files.length > 1);
+  const el = document.getElementById('duplicates-results');
+  if (dupes.length === 0) { el.innerHTML = '<div class="subtle">No duplicates found</div>'; return; }
+  el.innerHTML = `<div class="badge badge-err" style="margin-bottom:8px">${dupes.length} duplicate groups</div>` +
+    dupes.slice(0, 20).map(([crc, files]) =>
+      `<div style="margin-bottom:8px;padding:8px;border:1px solid var(--surface0)">
+        <div class="mono" style="margin-bottom:4px">CRC32: ${crc} (${files.length} files)</div>
+        ${files.map(f => `<div class="subtle">${escHtml(f.filename)} (${formatSize(f.size)})</div>`).join('')}
+      </div>`
+    ).join('') + (dupes.length > 20 ? `<div class="subtle">...and ${dupes.length - 20} more groups</div>` : '');
+  ncLog(`[*] Found ${dupes.length} duplicate groups`);
+}
+
+function deepClean() {
+  const nonRom = state.unidentified.filter(f => {
+    const ext = '.' + f.filename.split('.').pop().toLowerCase();
+    return NON_ROM_EXTS.has(ext);
+  });
+  const el = document.getElementById('deep-clean-results');
+  if (nonRom.length === 0) { el.innerHTML = '<div class="subtle">No junk files found</div>'; return; }
+  el.innerHTML = `<div class="badge badge-err" style="margin-bottom:8px">${nonRom.length} non-ROM files</div>` +
+    nonRom.map(f => `<div class="subtle">${escHtml(f.filename)} (${formatSize(f.size)})</div>`).join('');
+  ncLog(`[*] Deep clean: ${nonRom.length} non-ROM files found`);
+}
+
+// ─── Downloads ──────────────────────────────────────────────────────────
+function queueDownloads() {
+  const text = document.getElementById('download-urls').value.trim();
+  if (!text) { ncLog('[!] No URLs entered'); return; }
+  const urls = text.split('\n').filter(u => u.trim());
+  const el = document.getElementById('download-queue-list');
+  el.innerHTML = '';
+  urls.forEach((url, i) => {
+    const name = url.split('/').pop().split('?')[0] || `download_${i+1}`;
+    state.downloadQueue.push({ url, name, status: 'QUEUED' });
+    el.innerHTML += `<div class="download-item">
+      <div class="dl-name" title="${escHtml(url)}">${escHtml(name)}</div>
+      <span class="badge badge-muted dl-status">QUEUED</span>
+    </div>`;
+  });
+  document.getElementById('qa-downloads-count').textContent = urls.length + ' queued';
+  ncLog(`[*] ${urls.length} URLs queued for download`);
+}
+
+function resolveLinksFromMissing() {
+  const baseUrl = document.getElementById('myrient-base-url').value.trim();
+  if (!baseUrl) { ncLog('[!] Enter a base URL'); return; }
+  if (state.missing.length === 0) { ncLog('[!] No missing ROMs'); return; }
+
+  const links = state.missing.slice(0, 100).map(rom => {
+    const encoded = encodeURIComponent(rom.name);
+    return baseUrl + (baseUrl.endsWith('/') ? '' : '/') + encoded;
+  });
+
+  const el = document.getElementById('missing-links-results');
+  el.innerHTML = `<div class="badge badge-ok" style="margin-bottom:8px">${links.length} links resolved</div>
+    <textarea class="url-list" style="min-height:150px" readonly>${links.join('\n')}</textarea>
+    <button class="btn small" style="margin-top:8px" onclick="document.getElementById('download-urls').value=this.previousElementSibling.value;switchView('downloads')">Send to Queue</button>`;
+  ncLog(`[*] Resolved ${links.length} download links`);
+}
+
+// ─── File Download Helper ───────────────────────────────────────────────
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ─── Drag and Drop ──────────────────────────────────────────────────────
+function setupDropZones() {
+  ['dat-drop-zone', 'rom-drop-zone'].forEach(id => {
+    const zone = document.getElementById(id);
+    if (!zone) return;
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      if (id === 'dat-drop-zone') handleDATFiles(e.dataTransfer.files);
+      else handleROMFiles(e.dataTransfer.files);
+    });
+  });
+}
+
+// ─── BlindMatch Toggle ──────────────────────────────────────────────────
+document.getElementById('opt-blindmatch').addEventListener('change', function() {
+  document.getElementById('blindmatch-system-row').style.display = this.checked ? '' : 'none';
+});
+
+// ─── Init ───────────────────────────────────────────────────────────────
+function init() {
+  renderStrategies();
+  setupDropZones();
+  updateDashboard();
+  ghostType();
+
+  // Restore locale
+  const savedLocale = localStorage.getItem('r0mm_locale');
+  if (savedLocale) { document.getElementById('lang-select').value = savedLocale; setLocale(savedLocale); }
+
+  // Try restore session from localStorage
+  try {
+    const saved = localStorage.getItem('r0mm_session');
+    if (saved) {
+      const session = JSON.parse(saved);
+      if (session.dats && session.dats.length > 0) {
+        if (confirm('Restore previous session?')) {
+          restoreSession(session);
+          ncLog('[*] Previous session restored');
+        }
+      }
+    }
+  } catch (e) {}
+
+  ncLog('[*] R0MM Artifact initialized');
+  ncLog('[*] Browser-based ROM Manager ready');
+
+  // Wire quotes
+  const wireEl = document.getElementById('wire-ghost-typer');
+  if (wireEl) {
+    let wIdx = 0;
+    setInterval(() => {
+      wireEl.textContent = '> ' + RETRO_QUOTES[wIdx % RETRO_QUOTES.length];
+      wIdx++;
+    }, 5000);
+    wireEl.textContent = '> ' + RETRO_QUOTES[0];
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
